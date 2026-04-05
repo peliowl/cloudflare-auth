@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录中 - Cloudflare Auth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/styles/common.css">
+    <script src="/scripts/alert.js"></script>
+</head>
+<body class="m-body flex items-center justify-center px-4">
+    <div class="w-full max-w-sm">
+        <div class="m-card text-center">
+            <div class="m-loading">正在完成登录...</div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var params = new URLSearchParams(window.location.search);
+            var accessToken = params.get('access_token');
+            var refreshToken = params.get('refresh_token');
+            var error = params.get('error');
+
+            if (error) {
+                showAlert(decodeURIComponent(error), 'error', 0);
+                setTimeout(function () {
+                    window.location.replace('/login.html');
+                }, 2000);
+                return;
+            }
+
+            if (accessToken && refreshToken) {
+                localStorage.setItem('access_token', accessToken);
+                localStorage.setItem('refresh_token', refreshToken);
+                window.location.replace('/');
+            } else {
+                showAlert('登录参数缺失，请重新登录', 'error', 0);
+                setTimeout(function () {
+                    window.location.replace('/login.html');
+                }, 2000);
+            }
+        })();
+    </script>
+</body>
+</html>

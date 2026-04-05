@@ -1,0 +1,401 @@
+/* 极简现代化公共样式 — slate + indigo 色调 */
+
+/* 字体 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* 页面背景 */
+body.m-body {
+  background-color: #fafafa;
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #1e293b; /* slate-800 */
+}
+
+/* 卡片 */
+.m-card {
+  background-color: #ffffff;
+  border-radius: 1rem; /* rounded-2xl */
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+  padding: 2.5rem;
+}
+
+/* 输入框 — 底线风格 */
+.m-input {
+  width: 100%;
+  padding: 0.75rem 0;
+  border: none;
+  border-bottom: 1.5px solid #e2e8f0; /* slate-200 */
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #0f172a; /* slate-900 */
+  background: transparent;
+  outline: none;
+  transition: border-color 0.3s;
+  font-family: inherit;
+}
+
+.m-input:focus {
+  border-bottom-color: #6366f1; /* indigo-500 */
+}
+
+.m-input::placeholder {
+  color: #94a3b8; /* slate-400 */
+  font-weight: 300;
+}
+
+/* 主按钮 */
+.m-button-primary {
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  background-color: #0f172a; /* slate-900 */
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 0.9375rem;
+  border: none;
+  border-radius: 0.75rem; /* rounded-xl */
+  cursor: pointer;
+  transition: all 0.3s;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+}
+
+.m-button-primary:hover {
+  background-color: #1e293b; /* slate-800 */
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  transform: translateY(-1px);
+}
+
+.m-button-primary:active {
+  transform: translateY(0);
+}
+
+.m-button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 描边按钮 */
+.m-button-outline {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.7rem 1.5rem;
+  background-color: transparent;
+  color: #334155; /* slate-700 */
+  font-weight: 400;
+  font-size: 0.875rem;
+  border: 1px solid #e2e8f0; /* slate-200 */
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.m-button-outline:hover {
+  background-color: #f8fafc; /* slate-50 */
+  border-color: #cbd5e1; /* slate-300 */
+}
+
+/* Alert 组件 — 参考 Chakra UI Alert 设计规范，与极简现代化风格统一 */
+
+/* Alert 容器 */
+.m-alert-container {
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 28rem;
+  padding: 0 1rem;
+  pointer-events: none;
+}
+
+/* Alert 基础样式 */
+.m-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.5;
+  border-left: 3px solid transparent;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  transition: all 0.3s ease;
+}
+
+.m-alert.m-alert-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.m-alert.m-alert-hide {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+}
+
+/* Alert 图标 */
+.m-alert-icon {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.0625rem;
+}
+
+/* Alert 内容 */
+.m-alert-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Alert 关闭按钮 */
+.m-alert-close {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-top: 0.0625rem;
+}
+
+.m-alert-close:hover {
+  opacity: 1;
+}
+
+.m-alert-close svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* Error 状态 */
+.m-alert-error {
+  background-color: #fef2f2;
+  color: #dc2626;
+  border-left-color: #dc2626;
+}
+
+.m-alert-error .m-alert-close {
+  color: #dc2626;
+}
+
+/* Success 状态 */
+.m-alert-success {
+  background-color: #f0fdf4;
+  color: #16a34a;
+  border-left-color: #16a34a;
+}
+
+.m-alert-success .m-alert-close {
+  color: #16a34a;
+}
+
+/* Warning 状态 */
+.m-alert-warning {
+  background-color: #fffbeb;
+  color: #d97706;
+  border-left-color: #d97706;
+}
+
+.m-alert-warning .m-alert-close {
+  color: #d97706;
+}
+
+/* Info 状态 */
+.m-alert-info {
+  background-color: #eff6ff;
+  color: #2563eb;
+  border-left-color: #2563eb;
+}
+
+.m-alert-info .m-alert-close {
+  color: #2563eb;
+}
+
+/* 分隔线 */
+.m-divider {
+  display: flex;
+  align-items: center;
+  margin: 2rem 0;
+}
+
+.m-divider::before,
+.m-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid #e2e8f0;
+}
+
+.m-divider span {
+  margin: 0 1rem;
+  font-size: 0.75rem;
+  color: #94a3b8; /* slate-400 */
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* 链接 */
+.m-link {
+  color: #0f172a;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s;
+  border-bottom: 1px solid transparent;
+}
+
+.m-link:hover {
+  border-bottom-color: #0f172a;
+}
+
+/* 表单标签 */
+.m-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #94a3b8; /* slate-400 */
+  margin-bottom: 0.125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* 信息行 */
+.m-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid #f1f5f9; /* slate-100 */
+}
+
+.m-info-row:last-child {
+  border-bottom: none;
+}
+
+.m-info-label {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.m-info-value {
+  font-size: 0.8125rem;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+/* 区域标题 */
+.m-section-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
+}
+
+/* 加载动画 */
+@keyframes m-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.m-loading {
+  animation: m-pulse 1.5s ease-in-out infinite;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* Tab 导航 */
+.m-tabs {
+  display: flex;
+  gap: 2rem;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 0;
+}
+
+.m-tab {
+  padding-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: #94a3b8;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  font-family: inherit;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+
+.m-tab:hover {
+  color: #475569;
+}
+
+.m-tab-active {
+  color: #0f172a;
+  font-weight: 500;
+  border-bottom-color: #6366f1;
+}
+
+.m-tab-panel {
+  display: none;
+}
+
+.m-tab-panel-active {
+  display: block;
+}
+
+/* 头像 */
+.m-avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.m-avatar-placeholder {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  background-color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+/* 个人信息页顶部固定区域 */
+.m-profile-header {
+  position: sticky;
+  top: 1.5rem;
+  z-index: 10;
+  background-color: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+  padding: 1.5rem 2.5rem 0 2.5rem;
+}

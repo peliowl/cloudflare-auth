@@ -62,7 +62,20 @@ jspm_packages/
 !.env.example
 .wrangler/
 
+# Backup files with sensitive data (for local use only)
+*.bak
+
 # python-specific
 python_modules/
 .venv/
 .venv-workers/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Temporary build artifacts
+.tmp_wheels/

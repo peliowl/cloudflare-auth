@@ -1,32 +1,117 @@
-<!doctype html>
-<html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Hello, World!</title>
-	</head>
-	<body>
-		<h1 id="heading"></h1>
-		<p>This page comes from a static asset stored at `public/index.html` as configured in `wrangler.jsonc`.</p>
-		<button id="button" type="button">Fetch a random UUID</button>
-		<output id="random" for="button"></output>
-		<script>
-			fetch('/message')
-				.then((resp) => resp.text())
-				.then((text) => {
-					const h1 = document.getElementById('heading');
-					h1.textContent = text;
-				});
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主页 - Cloudflare Auth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/styles/common.css">
+    <script src="/scripts/alert.js"></script>
+</head>
+<body class="m-body flex items-center justify-center px-4">
+    <div class="w-full max-w-sm">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-2xl font-semibold text-slate-900 tracking-tight">认证成功</h1>
+            </div>
+            <button id="logout-btn" class="m-button-outline" style="width:auto; padding:0.4rem 1rem; font-size:0.75rem;">
+                退出
+            </button>
+        </div>
 
-			const button = document.getElementById("button");
-			button.addEventListener("click", () => {
-				fetch('/random')
-					.then((resp) => resp.text())
-					.then((text) => {
-						const random = document.getElementById('random');
-						random.textContent = text;
-					});
-			});
-		</script>
-	</body>
+        <!-- Loading -->
+        <div id="loading" class="m-loading">加载中...</div>
+
+        <!-- Content -->
+        <div id="content" class="hidden">
+            <div class="m-card text-center py-12">
+                <div class="mb-4">
+                    <svg class="w-16 h-16 mx-auto text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <p class="text-lg text-slate-700 mb-1">欢迎回来</p>
+                <p id="username-display" class="text-2xl font-semibold text-slate-900"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const accessToken = localStorage.getItem('access_token');
+        const refreshToken = localStorage.getItem('refresh_token');
+
+        if (!accessToken) {
+            window.location.replace('/login.html');
+            throw new Error('redirect');
+        }
+
+        let redirecting = false;
+
+        function handle401() {
+            if (redirecting) return;
+            redirecting = true;
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            window.location.replace('/login.html');
+        }
+
+        async function loadUserInfo() {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('content');
+
+            loading.classList.remove('hidden');
+            content.classList.add('hidden');
+
+            try {
+                const res = await fetch('/users/me', {
+                    headers: {
+                        'Authorization': 'Bearer ' + accessToken,
+                        'Accept': 'application/json'
+                    }
+                });
+                if (res.status === 401) {
+                    handle401();
+                    return;
+                }
+                if (!res.ok) throw new Error('request_failed');
+
+                const user = await res.json();
+                document.getElementById('username-display').textContent = user.username;
+
+                loading.classList.add('hidden');
+                content.classList.remove('hidden');
+            } catch (err) {
+                if (err.message !== 'redirect') {
+                    loading.classList.add('hidden');
+                    showAlert('获取用户信息失败', 'error');
+                }
+            }
+        }
+
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('logout-btn');
+            btn.disabled = true;
+            btn.textContent = '退出中...';
+            try {
+                await fetch('/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + accessToken
+                    },
+                    body: JSON.stringify({
+                        access_token: accessToken,
+                        refresh_token: refreshToken
+                    })
+                });
+            } catch (e) {}
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            window.location.replace('/login.html');
+        });
+
+        loadUserInfo();
+    </script>
+</body>
 </html>
