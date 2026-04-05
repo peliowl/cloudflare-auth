@@ -50,3 +50,13 @@
 ## 个人信息
 - [x] 修复bug：个人信息页面的国家、城市、时区信息没有正确显示出来
 
+
+## 注册
+- [x] 修复bug：注册页面点击发送验证码，调用发送验证码接口失败后，提示信息显示错误
+
+- [x] 修复bug：注册页面点击发送验证码，调用/auth/send-verification-code接口抛出异常：{"detail":"人机验证失败，请重试"}
+
+- [x] 修复bug：注册页面点击发送验证码，调用/auth/send-verification-code接口，抛出异常：{detail: "验证码已发送，请稍后再试"} detail: "验证码已发送，请稍后再试"，但查看Cloudflare KV无验证码
+
+- [x] 修复bug：注册页面点击发送验证码，调用了两次
+https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/flow/ov1接口，并且第二次接口返回401 Unauthorized

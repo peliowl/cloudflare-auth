@@ -2,7 +2,7 @@
 
 ## 概述
 
-基于设计文档，将用户认证系统拆分为增量式编码任务。每个任务构建在前一个任务之上，最终将所有组件连接起来。使用 Python + FastAPI，运行在 Cloudflare Workers 环境中。任务 1-7 覆盖核心认证功能（注册、登录、JWT、中间件），任务 8-11 覆盖 OAuth 第三方登录和前端页面，任务 12 覆盖用户主页功能。
+基于设计文档，将用户认证系统拆分为增量式编码任务。每个任务构建在前一个任务之上，最终将所有组件连接起来。使用 Python + FastAPI，运行在 Cloudflare Workers 环境中。任务 1-7 覆盖核心认证功能（注册、登录、JWT、中间件），任务 8-11 覆盖 OAuth 第三方登录和前端页面，任务 12 覆盖用户主页功能，任务 18 覆盖注册邮箱验证码验证功能（Resend 邮件发送 + Cloudflare Turnstile 人机验证）。
 
 ## 任务
 
@@ -194,10 +194,12 @@
     - 使用 TailwindCSS CDN，与登录页面风格一致
     - 将样式替换为 `common.css` 中定义的样式类
     - 极简居中卡片式布局，大量留白，包含用户名、邮箱、密码、确认密码输入框和注册按钮
+    - 包含邮箱验证码输入框和"发送验证码"按钮
+    - 嵌入 Cloudflare Turnstile 人机验证小部件
     - 包含 Google 第三方登录按钮
     - 包含"已有账号？登录"链接，指向 `/login.html`
-    - JavaScript：提交前验证密码与确认密码一致性（不一致时通过 Alert 组件 error 状态提示），调用 `/auth/register` API，成功后通过 Alert 组件 success 状态提示并跳转到登录页面，失败时通过 Alert 组件 error 状态显示错误信息
-    - _Requirements: 8.2, 8.3, 8.5, 8.6, 8.7, 8.8, 8.9_
+    - JavaScript：提交前验证密码与确认密码一致性（不一致时通过 Alert 组件 error 状态提示），调用 `/auth/register` API（含 verification_code 字段），成功后通过 Alert 组件 success 状态提示并跳转到登录页面，失败时通过 Alert 组件 error 状态显示错误信息
+    - _Requirements: 8.2, 8.3, 8.5, 8.6, 8.7, 8.8, 8.9, 15.9, 15.10, 15.11_
 
   - [x] 9.3 创建 OAuth 回调中转页面 `public/oauth-callback.html`
     - 引用公共样式文件 `<link rel="stylesheet" href="/styles/common.css">`
@@ -370,6 +372,75 @@
     - 无需额外修改，因为 schema.sql 已在 17.1 中更新
     - _Requirements: 14.1_
 
+- [x] 18. 实现注册邮箱验证码验证功能
+  - [x] 18.1 更新配置常量和环境变量
+    - 在 `src/core/config.py` 中新增邮箱验证码相关常量：`EMAIL_CODE_TTL = 300`（秒）、`EMAIL_CODE_COOLDOWN = 60`（秒，前端倒计时用）、`RESEND_API_URL = "https://api.resend.com/emails"`、`TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"`
+    - 更新 `wrangler.jsonc`：在 `vars` 中新增 `TURNSTILE_SITE_KEY` 和 `RESEND_FROM_EMAIL`，在 `secrets.required` 中新增 `RESEND_API_KEY` 和 `TURNSTILE_SECRET_KEY`
+    - 更新 `.dev.vars.example`：新增 `RESEND_API_KEY` 和 `TURNSTILE_SECRET_KEY` 示例
+    - _Requirements: 15.7, 15.12_
+
+  - [x] 18.2 新增 Pydantic 请求模型
+    - 在 `src/auth/models.py` 中新增 `SendVerificationCodeRequest` 模型（email + turnstile_token 字段，email 使用与 RegisterRequest 相同的正则验证）
+    - 修改 `RegisterRequest` 模型，新增 `verification_code` 字段（`str = Field(min_length=6, max_length=6)`）
+    - _Requirements: 15.1, 15.4_
+
+  - [x] 18.3 实现邮箱验证码服务 `src/auth/email_verification_service.py`
+    - 实现 `EmailVerificationService` 类，接受 `kv`（KV binding）和 `env`（环境绑定）
+    - 实现 `verify_turnstile(token, remote_ip)` 方法：使用 Pyodide 内置 `fetch` API 调用 `POST https://challenges.cloudflare.com/turnstile/v0/siteverify`，传入 `secret`（`env.TURNSTILE_SECRET_KEY`）和 `response`（token），返回布尔值
+    - 实现 `send_verification_code(email, turnstile_token, remote_ip)` 方法：
+      1. 调用 `verify_turnstile` 验证人机验证 token，失败抛出 HTTPException(400)
+      2. 检查 KV 中 `email_code:{email}` 是否已存在（防止重复发送），已存在抛出 HTTPException(429)
+      3. 使用 `random.SystemRandom().randint(100000, 999999)` 生成 6 位验证码
+      4. 将验证码存入 KV（Key: `email_code:{email}`，TTL: 300s）
+      5. 调用 `_build_email_html(code)` 构建邮件 HTML
+      6. 调用 `_send_email(email, subject, html)` 发送邮件
+    - 实现 `verify_code(email, code)` 方法：从 KV 获取验证码并比较
+    - 实现 `delete_code(email)` 方法：从 KV 删除验证码
+    - 实现 `_generate_code()` 方法：生成 6 位安全随机数字
+    - 实现 `_build_email_html(code)` 方法：构建验证码邮件 HTML 模板，参考 X 平台邮件验证码模板风格，与当前 UI 风格一致（slate 色调、大量留白、圆角卡片、品牌标识、大号验证码数字、有效期提示、安全提醒）
+    - 实现 `_send_email(to_email, subject, html)` 方法：使用 Pyodide `fetch` API 调用 `POST https://api.resend.com/emails`，Headers 包含 `Authorization: Bearer {RESEND_API_KEY}`，Body 包含 `{from: env.RESEND_FROM_EMAIL, to: [to_email], subject, html}`
+    - _Requirements: 15.1, 15.2, 15.3, 15.7, 15.8, 15.13_
+
+  - [x] 18.4 新增发送验证码 API 端点和公开配置端点
+    - 在 `src/auth/router.py` 中新增 `POST /auth/send-verification-code` 端点：接收 `SendVerificationCodeRequest` → 从 Request 获取 IP → 调用 `EmailVerificationService.send_verification_code` → 返回成功消息
+    - 在 `src/auth/router.py` 中新增 `GET /auth/config` 端点：返回前端所需的公开配置（`turnstile_site_key`），从 `env.TURNSTILE_SITE_KEY` 获取
+    - _Requirements: 15.1, 15.12_
+
+  - [x] 18.5 修改注册端点集成验证码验证
+    - 修改 `src/auth/router.py` 中的 `POST /auth/register` 端点：在调用 `AuthService.register` 之前，先调用 `EmailVerificationService.verify_code` 验证验证码 → 验证失败抛出 HTTPException(400, "验证码无效或已过期") → 注册成功后调用 `EmailVerificationService.delete_code` 删除已使用的验证码
+    - _Requirements: 15.4, 15.5, 15.6_
+
+  - [x] 18.6 更新注册页面 `public/register.html` 集成验证码和 Turnstile
+    - 引入 Cloudflare Turnstile JS SDK：`<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>`
+    - 页面加载时调用 `GET /auth/config` 获取 `turnstile_site_key`
+    - 在邮箱输入框下方新增验证码输入区域：验证码输入框（`.m-input`，`maxlength="6"`，`pattern="[0-9]{6}"`）+ "发送验证码"按钮（`.m-button-outline`，固定宽度），使用 flex 布局同行排列
+    - 在验证码区域上方嵌入 Turnstile 小部件容器 `<div id="turnstile-container"></div>`，使用 `turnstile.render` explicit 模式初始化，`managed` 验证模式
+    - "发送验证码"按钮点击逻辑：检查 Turnstile 是否完成（未完成则 Alert warning 提示）→ 调用 `POST /auth/send-verification-code`（传入 email + turnstile_token）→ 成功后按钮显示 60 秒倒计时（禁用状态，文字 "60s" 倒数）→ 倒计时结束恢复可点击 → 调用 `turnstile.reset` 重置 Turnstile 以获取新 token
+    - 修改注册表单提交逻辑：在 body 中新增 `verification_code` 字段
+    - Turnstile 小部件样式与极简现代化风格协调：居中显示，上下适当间距（`my-4`）
+    - _Requirements: 15.9, 15.10, 15.11_
+
+  - [ ]* 18.7 为邮箱验证码服务编写属性测试
+    - **Property 24: 验证码生成唯一性和有效期**
+    - **Property 25: 验证码验证正确性**
+    - **Property 26: Turnstile 人机验证前置检查**
+    - **Validates: Requirements 15.2, 15.3, 15.4, 15.5, 15.6, 15.13**
+
+- [x] 19. 优化邮箱验证码功能
+  - [x] 19.1 在发送验证码前校验邮箱是否已注册
+    - 修改 `src/auth/email_verification_service.py` 的 `send_verification_code` 方法，新增 `db` 参数（D1 binding）
+    - 在 Turnstile 验证通过后、检查冷却标记前，通过 `UserRepository.get_by_email` 查询邮箱是否已注册
+    - 若邮箱已注册，抛出 HTTPException(409, "该邮箱已被注册")
+    - 修改 `src/auth/router.py` 的 `send_verification_code` 端点，传入 `env.DB` 给 `EmailVerificationService.send_verification_code`
+    - _Requirements: 15.14_
+
+  - [x] 19.2 增强邮箱验证码发送的异常处理
+    - 修改 `src/auth/email_verification_service.py` 的 `verify_turnstile` 方法，区分 Turnstile token 验证失败和 Siteverify API 请求失败（网络错误），后者抛出 HTTPException(502, "人机验证服务暂时不可用，请稍后重试")
+    - 修改 `send_verification_code` 方法，确保邮件发送失败时不会在 KV 中留下无效的冷却标记（当前实现已在邮件发送成功后才设置冷却标记，确认此逻辑正确）
+    - 在 `send_verification_code` 方法中增加顶层异常捕获，对非 HTTPException 的异常返回 HTTPException(500, "服务器内部错误")
+    - 更新前端 `public/register.html`，对 409 状态码（邮箱已注册）显示对应的错误提示
+    - _Requirements: 15.14, 15.15, 15.16, 15.17, 15.18_
+
 ## 备注
 
 - 标记 `*` 的任务为可选任务，可跳过以加速 MVP 开发
@@ -378,9 +449,11 @@
 - 属性测试验证通用正确性属性，单元测试验证具体示例和边界情况
 - D1 和 KV 的实际 database_id 和 namespace_id 需要用户通过 `wrangler d1 create` 和 `wrangler kv namespace create` 命令创建后填入
 - OAuth client_id 和 client_secret 需要在 Google Cloud Console 中创建应用后获取
-- GOOGLE_CLIENT_SECRET 和 JWT_SECRET 应通过 `wrangler secret put` 设置为 Secrets
+- GOOGLE_CLIENT_SECRET、JWT_SECRET、RESEND_API_KEY 和 TURNSTILE_SECRET_KEY 应通过 `wrangler secret put` 设置为 Secrets
 - 前端页面使用 TailwindCSS CDN，采用极简现代化设计风格（slate 色调、大圆角、底线输入框、大量留白），公共样式统一在 `public/styles/common.css` 中维护，消息提示通过页面内嵌的 Alert 组件展示（参考 Chakra UI Alert 设计规范，支持 error/success/warning/info 四种状态，默认 2 秒后自动消失，可通过 duration 参数自定义时长），无需本地构建步骤
 - OAuth 回调 URL 需要在各 Provider 的开发者控制台中配置为 `{OAUTH_REDIRECT_BASE_URL}/auth/oauth/callback/{provider}`
 - 用户主页（`public/index.html`）为认证成功页面，登录后自动跳转到此页面，仅显示认证成功信息和用户名
 - 个人信息页（`public/profile.html`）展示用户详细信息和地理位置，仅通过手动输入 URL 访问
 - 地理位置信息通过 Cloudflare Workers 的 `request.cf` 对象和 `CF-Connecting-IP` 请求头获取，本地开发时这些值可能不可用
+- Cloudflare Turnstile Site Key 和 Secret Key 需要在 Cloudflare Dashboard > Turnstile 中创建 Widget 后获取
+- Resend API Key 需要在 resend.com Dashboard 中创建后获取，发件邮箱域名需要在 Resend 中完成域名验证

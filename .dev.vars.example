@@ -7,3 +7,9 @@ JWT_SECRET="your-jwt-secret-here"
 
 # Google OAuth 2.0 client secret — from Google Cloud Console > APIs & Services > Credentials
 GOOGLE_CLIENT_SECRET="your-google-client-secret-here"
+
+# Resend API key — from resend.com Dashboard
+RESEND_API_KEY="re_your-resend-api-key-here"
+
+# Cloudflare Turnstile secret key — from Cloudflare Dashboard > Turnstile
+TURNSTILE_SECRET_KEY="0x_your-turnstile-secret-key-here"

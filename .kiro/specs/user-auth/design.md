@@ -12,6 +12,8 @@
 - **前端页面**：登录和注册页面作为静态 HTML 文件放在 `public/` 目录下，使用 TailwindCSS CDN 实现样式，采用极简现代化设计风格。所有页面的公共样式统一在 `public/styles/common.css` 中维护，各 HTML 页面通过 `<link rel="stylesheet" href="/styles/common.css">` 引用。通过 JavaScript 调用后端 API。
 - **第三方 OAuth 登录**：支持 Google OAuth 2.0 授权码流程。OAuth 回调由后端处理，完成令牌交换和用户信息获取后，将系统 JWT 传递给前端。
 - **OAuth 状态管理**：使用 KV 存储保存 OAuth state 参数，防止 CSRF 攻击，state 设置短 TTL 自动过期。
+- **邮箱验证码**：注册时通过 Resend REST API 发送 6 位数字验证码到用户邮箱。验证码存储在 KV 中（TTL=300s），有效期内不允许重复发送。由于 Pyodide 环境无法使用 Resend Python SDK，使用 Pyodide 内置的 `fetch` API 直接调用 Resend REST API（`POST https://api.resend.com/emails`）。
+- **人机验证**：使用 Cloudflare Turnstile 作为 CAPTCHA 替代方案，在发送验证码前验证用户为真人。前端嵌入 Turnstile 小部件，后端通过 Siteverify API 验证 token。
 
 ## 架构
 
@@ -22,12 +24,13 @@ graph TB
     
     StaticFiles -->|API 调用| FW
     
-    FW --> AuthRoutes[认证路由<br>/auth/register<br>/auth/login<br>/auth/refresh<br>/auth/logout]
+    FW --> AuthRoutes[认证路由<br>/auth/register<br>/auth/login<br>/auth/refresh<br>/auth/logout<br>/auth/send-verification-code]
     FW --> OAuthRoutes[OAuth 路由<br>/auth/oauth/google<br>/auth/oauth/callback/google]
     FW --> UserRoutes[用户路由<br>/users/me<br>/users/me/geo]
     FW --> PublicRoutes[公开路由<br>/greet]
     
     AuthRoutes --> AuthService[AuthService]
+    AuthRoutes --> EmailVerificationService[EmailVerificationService]
     OAuthRoutes --> OAuthService[OAuthService]
     UserRoutes --> AuthMiddleware[Auth 中间件]
     AuthMiddleware --> JWTUtil[JWT 工具]
@@ -37,6 +40,10 @@ graph TB
     AuthService --> JWTUtil
     AuthService --> UserRepo[UserRepository]
     
+    EmailVerificationService -->|HTTP fetch| TurnstileAPI[Cloudflare Turnstile<br>Siteverify API]
+    EmailVerificationService -->|HTTP fetch| ResendAPI[Resend REST API]
+    EmailVerificationService --> KV
+    
     OAuthService --> UserRepo
     OAuthService --> JWTUtil
     OAuthService --> OAuthProviderRepo[OAuthAccountRepository]
@@ -44,7 +51,7 @@ graph TB
     
     UserRepo --> D1[(D1 Database)]
     OAuthProviderRepo --> D1
-    JWTUtil --> KV[(KV Store<br>令牌黑名单)]
+    JWTUtil --> KV[(KV Store<br>令牌黑名单 + 验证码)]
     OAuthService --> KV
     
     AuthService --> LoginHistoryRepo[LoginHistoryRepository]
@@ -123,6 +130,43 @@ sequenceDiagram
     W-->>B: 302 重定向到前端页面，携带 tokens
 ```
 
+### 邮箱验证码注册流程
+
+```mermaid
+sequenceDiagram
+    participant B as 浏览器
+    participant T as Turnstile Widget
+    participant W as Workers 后端
+    participant CF as Cloudflare Siteverify
+    participant R as Resend API
+    participant KV as KV Store
+    participant DB as D1 Database
+
+    Note over B,DB: 发送验证码流程
+    B->>T: 用户完成人机验证
+    T-->>B: turnstile_token
+    B->>W: POST /auth/send-verification-code<br>{email, turnstile_token}
+    W->>CF: POST siteverify {secret, response}
+    CF-->>W: {success: true}
+    W->>KV: GET email_code:{email}
+    KV-->>W: null (无已有验证码)
+    W->>W: 生成 6 位随机数字验证码
+    W->>KV: PUT email_code:{email} = code (TTL=300s)
+    W->>R: POST /emails {from, to, subject, html}
+    R-->>W: {id: "email_id"}
+    W-->>B: 200 OK {detail: "验证码已发送"}
+
+    Note over B,DB: 注册流程（含验证码）
+    B->>W: POST /auth/register<br>{username, email, password, verification_code}
+    W->>KV: GET email_code:{email}
+    KV-->>W: stored_code
+    W->>W: 验证 verification_code == stored_code
+    W->>DB: 创建用户记录
+    DB-->>W: 用户数据
+    W->>KV: DELETE email_code:{email}
+    W-->>B: 200 OK {user_info}
+```
+
 ## 组件与接口
 
 ### 1. 项目结构
@@ -136,6 +180,7 @@ src/
 │   ├── oauth_router.py  # OAuth 路由 (/auth/oauth/*)
 │   ├── service.py       # 认证业务逻辑
 │   ├── oauth_service.py # OAuth 业务逻辑
+│   ├── email_verification_service.py  # 邮箱验证码业务逻辑（Turnstile 验证 + Resend 发送 + KV 存储）
 │   ├── dependencies.py  # FastAPI 依赖（获取当前用户等）
 │   └── models.py        # Pydantic 请求/响应模型
 ├── users/
@@ -147,7 +192,7 @@ src/
 │   ├── __init__.py
 │   ├── jwt_utils.py     # JWT 生成与验证
 │   ├── password.py      # 密码哈希与验证
-│   └── config.py        # 配置常量（含 Google OAuth 配置）
+│   └── config.py        # 配置常量（含 Google OAuth 配置、邮箱验证码配置）
 └── schema.sql           # D1 数据库建表 SQL
 public/
 ├── scripts/
@@ -157,7 +202,7 @@ public/
 ├── index.html           # 用户主页（登录后展示认证成功信息、退出登录）
 ├── profile.html         # 个人信息页（手动输入 URL 访问，展示用户详细信息、IP/地区、退出登录）
 ├── login.html           # 登录页面
-├── register.html        # 注册页面
+├── register.html        # 注册页面（含邮箱验证码输入框、Turnstile 人机验证小部件）
 └── oauth-callback.html  # OAuth 回调中转页面
 ```
 
@@ -352,6 +397,65 @@ class OAuthService:
         ...
 ```
 
+#### 邮箱验证码服务 (`auth/email_verification_service.py`)
+
+```python
+class EmailVerificationService:
+    def __init__(self, kv, env):
+        self.kv = kv  # KV binding，用于存储验证码
+        self.env = env  # Cloudflare Workers 环境绑定，用于获取 RESEND_API_KEY、TURNSTILE_SECRET_KEY 等配置
+
+    async def verify_turnstile(self, token: str, remote_ip: str | None = None) -> bool:
+        """验证 Cloudflare Turnstile 人机验证 token
+        调用 POST https://challenges.cloudflare.com/turnstile/v0/siteverify
+        传入 secret（TURNSTILE_SECRET_KEY）和 response（token）
+        返回 True 表示验证通过，False 表示验证失败"""
+        ...
+
+    async def send_verification_code(self, email: str, turnstile_token: str, remote_ip: str | None = None, db=None) -> None:
+        """发送邮箱验证码
+        1. 调用 verify_turnstile 验证人机验证 token
+        2. 检查 D1 数据库中该邮箱是否已注册（防止已注册邮箱重复注册）
+        3. 检查 KV 中是否已存在该邮箱的验证码（防止重复发送）
+        4. 生成 6 位随机数字验证码
+        5. 将验证码存入 KV（Key: email_code:{email}，TTL: 300s）
+        6. 调用 Resend REST API 发送验证码邮件
+        7. 设置冷却标记（仅在邮件发送成功后）
+        失败时抛出 HTTPException"""
+        ...
+
+    async def verify_code(self, email: str, code: str) -> bool:
+        """验证邮箱验证码
+        从 KV 中获取存储的验证码并与用户提交的验证码比较
+        返回 True 表示验证通过"""
+        ...
+
+    async def delete_code(self, email: str) -> None:
+        """删除已使用的验证码"""
+        ...
+
+    def _generate_code(self) -> str:
+        """生成 6 位随机数字验证码，使用 random.SystemRandom 确保安全随机"""
+        ...
+
+    def _build_email_html(self, code: str) -> str:
+        """构建验证码邮件 HTML 模板
+        参考 X 平台邮件验证码模板风格，与当前 UI 风格一致：
+        - 品牌标识（Cloudflare Auth）
+        - 验证码数字（大号加粗居中显示，字间距加大）
+        - 有效期提示（5 分钟）
+        - 安全提醒（如非本人操作请忽略）
+        - 极简现代化风格（slate 色调、大量留白、圆角卡片）"""
+        ...
+
+    async def _send_email(self, to_email: str, subject: str, html: str) -> None:
+        """通过 Resend REST API 发送邮件
+        使用 Pyodide 内置的 fetch API 调用 POST https://api.resend.com/emails
+        Headers: Authorization: Bearer {RESEND_API_KEY}, Content-Type: application/json
+        Body: {from, to, subject, html}"""
+        ...
+```
+
 #### OAuth 账号仓库（集成在 `users/repository.py`）
 
 注意：所有 Repository 中的可空字段在传入 D1 绑定时，需通过 `_d1_val()` 辅助函数将 Python `None` 转换为空字符串。这是因为在 Pyodide 环境中，Python `None` 会变为 JS `undefined`，D1 会拒绝该值。
@@ -410,10 +514,12 @@ class LoginHistoryRepository:
 
 | 方法 | 路径 | 描述 | 认证 |
 |------|------|------|------|
-| POST | `/auth/register` | 用户注册 | 无 |
+| POST | `/auth/register` | 用户注册（需验证码） | 无 |
 | POST | `/auth/login` | 用户登录 | 无 |
 | POST | `/auth/refresh` | 刷新令牌 | 无（需 refresh_token） |
 | POST | `/auth/logout` | 用户注销 | 需要 |
+| POST | `/auth/send-verification-code` | 发送邮箱验证码（需 Turnstile 人机验证） | 无 |
+| GET | `/auth/config` | 获取前端公开配置（Turnstile Site Key 等） | 无 |
 | GET | `/auth/oauth/{provider}` | 发起 OAuth 登录（重定向到提供商） | 无 |
 | GET | `/auth/oauth/callback/{provider}` | OAuth 回调处理（重定向到前端页面） | 无 |
 | GET | `/users/me` | 获取当前用户信息 | 需要 |
@@ -485,6 +591,17 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
     email: str  # 使用自定义 field_validator + 正则验证（Pyodide 环境不支持 email-validator 库）
     password: str = Field(min_length=8, max_length=128)
+    verification_code: str = Field(min_length=6, max_length=6)  # 6 位数字验证码
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """使用正则表达式验证邮箱格式，并统一转为小写"""
+        ...
+
+class SendVerificationCodeRequest(BaseModel):
+    email: str  # 使用自定义 field_validator + 正则验证
+    turnstile_token: str  # Cloudflare Turnstile 人机验证 token
 
     @field_validator("email")
     @classmethod
@@ -575,6 +692,9 @@ class LoginHistoryResponse(BaseModel):
 - **OAuth State Key**: `oauth_state:{state_value}`
 - **OAuth State Value**: `{"provider": "google", "created_at": timestamp}`
 - **OAuth State TTL**: 300 秒（5 分钟），防止过期 state 被重放
+- **邮箱验证码 Key**: `email_code:{email}`
+- **邮箱验证码 Value**: `"123456"`（6 位数字字符串）
+- **邮箱验证码 TTL**: 300 秒（5 分钟），过期自动清理，有效期内不允许重复发送
 
 ### JWT Payload 结构
 
@@ -618,17 +738,19 @@ class LoginHistoryResponse(BaseModel):
         }
     ],
     "secrets": {
-        "required": ["JWT_SECRET", "GOOGLE_CLIENT_SECRET"]
+        "required": ["JWT_SECRET", "GOOGLE_CLIENT_SECRET", "RESEND_API_KEY", "TURNSTILE_SECRET_KEY"]
     },
     "vars": {
         "GOOGLE_CLIENT_ID": "<your-google-client-id>",
-        "OAUTH_REDIRECT_BASE_URL": "https://your-domain.workers.dev"
+        "OAUTH_REDIRECT_BASE_URL": "https://your-domain.workers.dev",
+        "TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
+        "RESEND_FROM_EMAIL": "Cloudflare Auth <noreply@your-domain.com>"
     }
 }
 ```
 
 注意：
-- `GOOGLE_CLIENT_SECRET` 和 `JWT_SECRET` 应通过 `wrangler secret put` 命令设置为 Secrets，不应明文写在配置文件中。`vars` 中仅保留非敏感配置。
+- `GOOGLE_CLIENT_SECRET`、`JWT_SECRET`、`RESEND_API_KEY` 和 `TURNSTILE_SECRET_KEY` 应通过 `wrangler secret put` 命令设置为 Secrets，不应明文写在配置文件中。`vars` 中仅保留非敏感配置。
 - `compatibility_flags` 必须包含 `"python_workers"` 以启用 Python Workers 支持。
 - `assets.run_worker_first` 配置指定哪些路径优先由 Worker 处理而非静态文件服务。
 
@@ -682,6 +804,19 @@ class LoginHistoryResponse(BaseModel):
 - **已登录用户重定向**：登录页面和注册页面在页面加载时（`<script>` 顶部同步执行）检查 `localStorage` 中是否存在 `access_token`，若存在则立即通过 `window.location.replace('/')` 重定向到首页，阻止页面内容渲染和表单交互。此检查在 DOM 渲染前执行，确保已登录用户不会看到登录/注册表单的闪烁
 - **交互**：表单提交通过 `fetch` 调用 API，API 响应的错误信息和操作成功信息均通过页面内嵌的 Alert 组件展示
 - **OAuth 回调页面** (`oauth-callback.html`)：从 URL 参数中提取 tokens，存入 localStorage，然后跳转到主页。错误信息通过 Alert 组件展示
+- **注册页面邮箱验证码**：
+  - 注册页面在邮箱输入框下方新增验证码输入区域，包含验证码输入框（`.m-input`）和"发送验证码"按钮
+  - "发送验证码"按钮使用 `.m-button-outline` 样式，与邮箱输入框同行排列（flex 布局），按钮宽度固定
+  - 点击"发送验证码"按钮后：先检查 Turnstile 人机验证是否完成 → 调用 `POST /auth/send-verification-code` API → 成功后按钮显示 60 秒倒计时（按钮禁用，文字变为"60s"倒数）→ 倒计时结束后恢复可点击状态
+  - 验证码输入框使用 `maxlength="6"` 和 `pattern="[0-9]{6}"` 限制输入
+- **Cloudflare Turnstile 人机验证**：
+  - 引入 Turnstile JS SDK：`<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>`
+  - 使用 explicit 渲染模式，在注册表单中嵌入 Turnstile 小部件容器 `<div id="turnstile-container"></div>`
+  - 通过 `turnstile.render('#turnstile-container', { sitekey: TURNSTILE_SITE_KEY, callback: onTurnstileSuccess })` 初始化
+  - Turnstile Site Key 通过页面内嵌的 `<meta>` 标签或 API 获取（从 `wrangler.jsonc` 的 `vars.TURNSTILE_SITE_KEY` 配置）
+  - 小部件放置在"发送验证码"按钮上方，使用 `managed` 模式（自动选择交互或非交互验证）
+  - Turnstile 小部件样式与极简现代化风格协调：居中显示，上下适当间距
+  - 注意：Turnstile Site Key 为非敏感公开配置，需要在前端页面中可访问。通过新增 API 端点 `GET /auth/turnstile-site-key` 返回 Site Key，或直接在 HTML 中硬编码（因为 Site Key 是公开的）。推荐方案：在 `wrangler.jsonc` 的 `vars` 中配置 `TURNSTILE_SITE_KEY`，前端通过 `GET /auth/config` 公开端点获取
 
 ### 用户主页设计 (`index.html`)
 
@@ -888,6 +1023,24 @@ class LoginHistoryResponse(BaseModel):
 
 **Validates: Requirements 14.6**
 
+### Property 24: 验证码生成唯一性和有效期
+
+*For any* 邮箱地址，调用发送验证码后，KV 中应存在对应的验证码记录，验证码为 6 位数字字符串。在验证码有效期内再次请求发送应被拒绝（返回 429）。
+
+**Validates: Requirements 15.2, 15.3**
+
+### Property 25: 验证码验证正确性
+
+*For any* 已发送验证码的邮箱，使用正确的验证码进行验证应返回成功，使用错误的验证码或过期的验证码应返回失败。验证成功后验证码应被删除，不可重复使用。
+
+**Validates: Requirements 15.4, 15.5, 15.6**
+
+### Property 26: Turnstile 人机验证前置检查
+
+*For any* 发送验证码请求，若 Turnstile token 验证失败（无效或过期），系统应拒绝请求并返回人机验证失败的错误信息，不发送任何邮件。
+
+**Validates: Requirements 15.1, 15.13**
+
 ## 错误处理
 
 ### HTTP 错误响应格式
@@ -925,6 +1078,14 @@ class LoginHistoryResponse(BaseModel):
 | 用户已设置密码，不允许重复设置 | 409 | "密码已设置，不可重复操作" |
 | 设置密码时密码强度不足 | 422 | Pydantic 自动生成的验证错误 |
 | 登录历史查询参数无效（page < 1 或 page_size 超出范围） | 422 | Pydantic/FastAPI 自动生成的验证错误 |
+| Turnstile 人机验证失败（token 无效、过期或已使用） | 400 | "人机验证失败，请重试" |
+| 验证码已发送且未过期，重复请求发送 | 429 | "验证码已发送，请稍后再试" |
+| 验证码不正确或已过期 | 400 | "验证码无效或已过期" |
+| 注册时未提供验证码 | 422 | Pydantic 自动生成的验证错误 |
+| Resend 邮件发送失败 | 502 | "验证码发送失败，请稍后重试" |
+| 发送验证码时邮箱已注册 | 409 | "该邮箱已被注册" |
+| Turnstile Siteverify API 请求失败（网络错误） | 502 | "人机验证服务暂时不可用，请稍后重试" |
+| 发送验证码过程中未预期异常 | 500 | "服务器内部错误" |
 
 ### 安全考虑
 
@@ -980,6 +1141,9 @@ class LoginHistoryResponse(BaseModel):
 | Property 21 | 登出操作产生历史记录 | 不变量 |
 | Property 22 | 登录历史记录包含完整的地理位置信息 | 不变量 |
 | Property 23 | 登录历史分页查询正确性 | 不变量 |
+| Property 24 | 验证码生成唯一性和有效期 | 不变量 |
+| Property 25 | 验证码验证正确性 | 往返属性 |
+| Property 26 | Turnstile 人机验证前置检查 | 不变量 |
 
 #### 单元测试覆盖
 
@@ -1005,7 +1169,8 @@ tests/
 ├── test_oauth_service.py    # OAuth 服务属性测试（待实现）
 ├── test_middleware.py        # 中间件属性测试（待实现）
 ├── test_api.py              # API 端点集成测试（待实现）
-└── test_login_history.py    # 登录历史记录属性测试（待实现）
+├── test_login_history.py    # 登录历史记录属性测试（待实现）
+└── test_email_verification.py  # 邮箱验证码服务属性测试（待实现）
 ```
 
 ### 注意事项

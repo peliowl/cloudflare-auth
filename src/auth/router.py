@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 import asgi
 from auth.dependencies import get_current_user
@@ -6,10 +6,12 @@ from auth.models import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    SendVerificationCodeRequest,
     TokenResponse,
     UserResponse,
 )
 from auth.service import AuthService
+from auth.email_verification_service import EmailVerificationService
 from users.repository import UserRepository
 from users.login_history_repository import LoginHistoryRepository
 
@@ -47,9 +49,31 @@ def _extract_request_info(request: Request, env=None) -> dict:
 
 @auth_router.post("/register", response_model=UserResponse)
 async def register(body: RegisterRequest, env=asgi.env):
+    # Verify email code first
+    ev_service = EmailVerificationService(env.TOKEN_BLACKLIST, env)
+    valid = await ev_service.verify_code(body.email, body.verification_code)
+    if not valid:
+        raise HTTPException(status_code=400, detail="验证码无效或已过期")
+
     service = _build_service(env)
     user = await service.register(body.username, body.email, body.password)
+
+    # Delete used code
+    await ev_service.delete_code(body.email)
     return user
+
+
+@auth_router.post("/send-verification-code")
+async def send_verification_code(body: SendVerificationCodeRequest, request: Request, env=asgi.env):
+    ip = request.headers.get("cf-connecting-ip")
+    ev_service = EmailVerificationService(env.TOKEN_BLACKLIST, env)
+    await ev_service.send_verification_code(body.email, body.turnstile_token, ip, db=env.DB)
+    return {"detail": "验证码已发送"}
+
+
+@auth_router.get("/config")
+async def get_config(env=asgi.env):
+    return {"turnstile_site_key": str(env.TURNSTILE_SITE_KEY)}
 
 
 @auth_router.post("/login", response_model=TokenResponse)

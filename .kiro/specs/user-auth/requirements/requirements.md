@@ -22,6 +22,9 @@
 - **Geo_Info**: 用户地理位置信息，通过 Cloudflare Workers 的 `request.cf` 对象和 `CF-Connecting-IP` 请求头获取
 - **Profile_Page**: 个人信息页面（`/profile.html`），展示用户详细信息（用户名、邮箱、角色、注册时间）和地理位置信息（IP、国家、城市），需手动输入 URL 访问，不在主页或其他页面提供导航链接
 - **Login_History**: 用户登录历史记录表，记录用户的登录和登出操作，包含 IP 地址、地理位置、登录方式等信息，用于安全审计和统计分析。兼容系统密码登录和第三方 OAuth 登录
+- **Email_Verification**: 邮箱验证码验证机制，用于在用户注册时验证邮箱的真实性和所有权。通过 Resend 平台的邮件发送 API（REST API，`POST https://api.resend.com/emails`）发送包含 6 位数字验证码的邮件，验证码有效期 5 分钟，存储在 KV_Store 中并设置 TTL 自动过期
+- **Turnstile**: Cloudflare Turnstile 人机验证服务，作为 CAPTCHA 的隐私友好替代方案。在发送邮箱验证码前要求用户完成人机验证，防止机器人滥用验证码发送接口。前端嵌入 Turnstile 小部件生成 token，后端通过 Cloudflare Siteverify API（`POST https://challenges.cloudflare.com/turnstile/v0/siteverify`）验证 token 有效性
+- **Resend_API**: Resend 邮件发送平台的 REST API，用于发送邮箱验证码邮件。API Key 通过 Cloudflare Secrets 安全管理，不硬编码在代码中
 
 ## 需求
 
@@ -212,3 +215,28 @@
 6. THE Auth_System SHALL 提供 `GET /users/me/login-history` API 端点，允许已认证用户查询自己的登录历史记录，支持分页查询（page、page_size 参数，默认 page=1、page_size=20）
 7. THE login_history 表 SHALL 通过 user_id 和 created_at 字段建立索引，以支持高效的按用户查询和时间排序
 8. THE Auth_System SHALL 利用 Cloudflare Workers 的 `request.cf` 对象和 `CF-Connecting-IP` 请求头获取登录/登出时的 IP 地址和地理位置信息
+
+### 需求 15：注册邮箱验证码验证
+
+**用户故事：** 作为一个系统管理员，我希望用户在注册时通过邮箱验证码验证邮箱的真实性，以防止虚假邮箱注册和机器人滥用。
+
+#### 验收标准
+
+1. WHEN 用户在注册页面输入邮箱后点击"发送验证码"按钮, THE Auth_System SHALL 先验证 Cloudflare Turnstile 人机验证 token 的有效性，验证通过后生成一个 6 位数字验证码并通过 Resend_API 发送到用户邮箱
+2. WHEN 验证码发送成功, THE Auth_System SHALL 将验证码存储到 KV_Store 中，Key 格式为 `email_code:{email}`，TTL 设置为 300 秒（5 分钟），验证码过期后自动清除
+3. WHEN 用户在验证码有效期内再次请求发送验证码, THE Auth_System SHALL 拒绝请求并返回"验证码已发送，请稍后再试"的提示信息，防止重复生成验证码
+4. WHEN 用户提交注册请求, THE Auth_System SHALL 验证用户提供的验证码与 KV_Store 中存储的验证码是否一致，验证通过后才允许完成注册
+5. WHEN 用户提交的验证码不正确或已过期, THE Auth_System SHALL 拒绝注册并返回"验证码无效或已过期"的错误信息
+6. WHEN 验证码验证成功并完成注册后, THE Auth_System SHALL 从 KV_Store 中删除已使用的验证码，防止重复使用
+7. THE Auth_System SHALL 使用 Resend 平台的 REST API（`POST https://api.resend.com/emails`）发送验证码邮件，API Key 通过 Cloudflare Secrets（`wrangler secret put RESEND_API_KEY`）安全管理
+8. THE Auth_System SHALL 设计一个与当前界面 UI 风格一致的 HTML 邮件模板用于发送验证码，模板参考 X 平台的邮件验证码模板风格，包含品牌标识、验证码数字（大号加粗显示）、有效期提示和安全提醒
+9. WHEN 用户在发送验证码前未完成 Cloudflare Turnstile 人机验证, THE Auth_UI SHALL 阻止发送请求并通过 Alert 组件（warning 状态）提示用户完成人机验证
+10. THE Auth_UI SHALL 在注册页面的邮箱输入框旁添加"发送验证码"按钮，点击后显示倒计时（60 秒），倒计时期间按钮禁用
+11. THE Auth_UI SHALL 在注册页面嵌入 Cloudflare Turnstile 人机验证小部件，使用 managed 模式，小部件样式与当前极简现代化 UI 风格协调
+12. THE Auth_System SHALL 将 Cloudflare Turnstile 的 Site Key 配置为环境变量（`TURNSTILE_SITE_KEY`），Secret Key 通过 Cloudflare Secrets（`wrangler secret put TURNSTILE_SECRET_KEY`）安全管理
+13. WHEN Turnstile 人机验证 token 验证失败（无效、过期或已使用）, THE Auth_System SHALL 拒绝发送验证码请求并返回"人机验证失败，请重试"的错误信息
+14. WHEN 用户请求发送验证码时提供的邮箱已存在于 D1_Database 的 users 表中, THE Auth_System SHALL 拒绝发送验证码并返回"该邮箱已被注册"的错误信息，防止已注册邮箱重复注册
+15. WHEN 用户请求发送验证码时提供的邮箱格式无效, THE Auth_System SHALL 在 Pydantic 模型验证阶段拒绝请求并返回邮箱格式错误的提示信息
+16. WHEN Resend_API 返回非成功状态码（如 API Key 无效、发件邮箱未验证、收件邮箱不可达等）, THE Auth_System SHALL 返回"邮件发送失败，请稍后重试"的错误信息，并确保不会在 KV_Store 中留下无效的冷却标记
+17. WHEN Cloudflare Turnstile Siteverify API 请求本身失败（网络错误、超时等）, THE Auth_System SHALL 返回"人机验证服务暂时不可用，请稍后重试"的错误信息
+18. WHEN 发送验证码过程中发生未预期的异常, THE Auth_System SHALL 捕获异常并返回通用的服务器错误信息，避免泄露内部实现细节

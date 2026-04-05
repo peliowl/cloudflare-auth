@@ -24,3 +24,15 @@
 - [-] 将修改的文件从工作区添加到暂存区，并且提交到版本库，在提交前向我确认提交信息是否合理
 
 - [ ] 将版本库中的文件推送到远程仓库master
+
+- [x] 删除远程仓库的main分支
+
+- [x] 添加README.md文件，使用专业的词汇及清晰严谨的脉络介绍该项目，并且推送到远程仓库
+
+- [ ] 根据.dev.vars中的配置信息，设置TURNSTILE_SECRET_KEY和RESEND_API_KEY到云端cloudflare secrets
+
+- [x] 根据.dev.vars中的配置信息，更新TURNSTILE_SECRET_KEY到云端cloudflare secrets
+
+- [x] 将wrangler.jsonc中新增的内容项，添加到wrangler.jsonc.bak中，并对wrangler.jsonc进行脱敏
+
+- [x] 检查并去除前端界面中用于debug的内容

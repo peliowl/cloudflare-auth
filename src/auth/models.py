@@ -9,6 +9,7 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
     email: str
     password: str = Field(min_length=8, max_length=128)
+    verification_code: str = Field(min_length=6, max_length=6)
 
     @field_validator("email")
     @classmethod
@@ -32,6 +33,18 @@ class LoginRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class SendVerificationCodeRequest(BaseModel):
+    email: str
+    turnstile_token: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if not _EMAIL_REGEX.match(v):
+            raise ValueError("邮箱格式无效")
+        return v.lower()
 
 
 class TokenResponse(BaseModel):

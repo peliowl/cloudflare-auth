@@ -7,6 +7,36 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/styles/common.css">
     <script src="/scripts/alert.js"></script>
+    <script>
+        // Must be defined before Turnstile SDK loads
+        var turnstileSiteKey = '';
+        var turnstileWidgetId = null;
+        var turnstileReady = false;
+
+        function renderTurnstile() {
+            if (turnstileWidgetId !== null || !turnstileSiteKey || !turnstileReady) return;
+            turnstileWidgetId = turnstile.render('#turnstile-container', {
+                sitekey: turnstileSiteKey,
+                execution: 'execute',
+                appearance: 'interaction-only',
+                callback: function(token) {
+                    // Turnstile verified — now send the verification code
+                    doSendCode(token);
+                },
+                'error-callback': function() {
+                    showAlert('人机验证失败，请重试', 'error');
+                    var btn = document.getElementById('send-code-btn');
+                    if (btn) { btn.disabled = false; btn.textContent = '发送验证码'; }
+                },
+            });
+        }
+
+        function onloadTurnstileCallback() {
+            turnstileReady = true;
+            renderTurnstile();
+        }
+    </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onloadTurnstileCallback" async defer></script>
 </head>
 <body class="m-body flex items-center justify-center px-4">
     <div class="w-full max-w-sm">
@@ -29,6 +59,20 @@
                         class="m-input" autocomplete="email"
                         placeholder="name@example.com">
                 </div>
+
+                <!-- Turnstile (invisible, triggered on button click) -->
+                <div id="turnstile-container"></div>
+
+                <!-- Verification code -->
+                <div>
+                    <label class="m-label">验证码</label>
+                    <div class="flex gap-3">
+                        <input type="text" id="verification-code" maxlength="6" pattern="[0-9]{6}"
+                            class="m-input flex-1" placeholder="6 位验证码" inputmode="numeric">
+                        <button type="button" id="send-code-btn" class="m-button-outline whitespace-nowrap" style="width:120px;flex-shrink:0;">发送验证码</button>
+                    </div>
+                </div>
+
                 <div>
                     <label for="password" class="m-label">密码</label>
                     <input type="password" id="password" name="password" required minlength="8"
@@ -73,6 +117,97 @@
             throw new Error('redirect');
         }
 
+        // Load Turnstile site key from backend config
+        (async function() {
+            try {
+                const res = await fetch('/auth/config');
+                const data = await res.json();
+                turnstileSiteKey = data.turnstile_site_key || '';
+                renderTurnstile();
+            } catch (e) {
+                // config load failed — Turnstile will remain disabled
+            }
+        })();
+
+        // Actually send the verification code (called after Turnstile succeeds)
+        var _sendCodeEmail = '';
+        async function doSendCode(turnstileToken) {
+            const sendCodeBtn = document.getElementById('send-code-btn');
+            sendCodeBtn.disabled = true;
+            sendCodeBtn.textContent = '发送中...';
+
+            try {
+                const res = await fetch('/auth/send-verification-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: _sendCodeEmail, turnstile_token: turnstileToken })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    let msg = '发送失败，请稍后重试';
+                    if (typeof data.detail === 'string') {
+                        msg = data.detail;
+                    } else if (Array.isArray(data.detail)) {
+                        msg = data.detail.map(e => e.msg || e.message || JSON.stringify(e)).join('; ');
+                    }
+                    showAlert(msg, 'error');
+                    sendCodeBtn.disabled = false;
+                    sendCodeBtn.textContent = '发送验证码';
+                    return;
+                }
+
+                showAlert('验证码已发送到您的邮箱', 'success');
+
+                // Start 60s countdown
+                var countdown = 60;
+                sendCodeBtn.textContent = countdown + 's';
+                var timer = setInterval(function() {
+                    countdown--;
+                    if (countdown <= 0) {
+                        clearInterval(timer);
+                        sendCodeBtn.disabled = false;
+                        sendCodeBtn.textContent = '发送验证码';
+                    } else {
+                        sendCodeBtn.textContent = countdown + 's';
+                    }
+                }, 1000);
+            } catch (err) {
+                showAlert('网络错误，请检查连接后重试', 'error');
+                sendCodeBtn.disabled = false;
+                sendCodeBtn.textContent = '发送验证码';
+            }
+        }
+
+        // Send verification code button — triggers Turnstile first
+        const sendCodeBtn = document.getElementById('send-code-btn');
+
+        sendCodeBtn.addEventListener('click', function() {
+            const email = document.getElementById('email').value.trim();
+            if (!email) {
+                showAlert('请先输入邮箱地址', 'warning');
+                return;
+            }
+
+            if (turnstileWidgetId === null) {
+                showAlert('人机验证加载中，请稍后重试', 'warning');
+                return;
+            }
+
+            _sendCodeEmail = email;
+            sendCodeBtn.disabled = true;
+            sendCodeBtn.textContent = '验证中...';
+
+            // Reset Turnstile before executing to ensure a fresh challenge
+            // (avoids resetting immediately after use, which triggers a spurious second request)
+            turnstile.reset(turnstileWidgetId);
+
+            // Trigger Turnstile challenge — callback will call doSendCode
+            turnstile.execute(turnstileWidgetId);
+        });
+
+        // Register form submit
         const form = document.getElementById('register-form');
         const submitBtn = document.getElementById('submit-btn');
 
@@ -83,9 +218,15 @@
             const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirm-password').value;
+            const verificationCode = document.getElementById('verification-code').value.trim();
 
             if (password !== confirmPassword) {
                 showAlert('两次输入的密码不一致', 'error');
+                return;
+            }
+
+            if (!verificationCode || verificationCode.length !== 6) {
+                showAlert('请输入 6 位验证码', 'error');
                 return;
             }
 
@@ -96,7 +237,7 @@
                 const res = await fetch('/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, email, password })
+                    body: JSON.stringify({ username, email, password, verification_code: verificationCode })
                 });
 
                 const data = await res.json();
