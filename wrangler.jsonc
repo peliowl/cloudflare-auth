@@ -43,12 +43,16 @@
 	"secrets": {
 		"required": [
 			"JWT_SECRET",
-			"GOOGLE_CLIENT_SECRET"
+			"GOOGLE_CLIENT_SECRET",
+			"RESEND_API_KEY",
+			"TURNSTILE_SECRET_KEY"
 		]
 	},
 	"vars": {
 		"GOOGLE_CLIENT_ID": "<your-google-client-id>.apps.googleusercontent.com",
-		"OAUTH_REDIRECT_BASE_URL": "https://<your-domain>"
+		"OAUTH_REDIRECT_BASE_URL": "https://<your-domain>",
+		"TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
+		"RESEND_FROM_EMAIL": "noreply@<your-domain>"
 	},
 	/**
 	 * Smart Placement
