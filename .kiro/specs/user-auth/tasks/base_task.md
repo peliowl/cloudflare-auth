@@ -8,6 +8,8 @@
 
 - 使用专业的词汇及清晰的脉络，以markdown文档的形式，将以上的问题及解决方案整理输出到docs目录中，要求格式统一、逻辑严谨
 
+- 使用专业的词汇及清晰的脉络，以markdown文档的形式，将敏感信息的传输方案及存储方案整理输出到docs目录中，要求格式统一、逻辑严谨
+
 ## 流水线
 - [ ] 执行部署脚本 `scripts\deploy.bat`，自动还原真实配置 → 部署到 Cloudflare → 恢复脱敏配置
 
@@ -33,6 +35,6 @@
 
 - [x] 根据.dev.vars中的配置信息，更新TURNSTILE_SECRET_KEY到云端cloudflare secrets
 
-- [x] 将wrangler.jsonc中新增的内容项，添加到wrangler.jsonc.bak中，并对wrangler.jsonc进行脱敏
+- [x] 将wrangler.jsonc中新增的内容项，添加到wrangler.jsonc.bak中，然后对wrangler.jsonc进行脱敏，并且参考.dev.vars的方式，提供脱敏的wrangler.jsonc.example加入版本管理，wrangler.jsonc使用真实的数据用于本地调试和deploy线上使用，同时更新deploy.bat脚本
 
 - [x] 检查并去除前端界面中用于debug的内容

@@ -8,15 +8,15 @@
     <link rel="stylesheet" href="/styles/common.css">
     <script src="/scripts/alert.js"></script>
 </head>
-<body class="m-body flex items-center justify-center px-4">
+<body class="m-body m-body-auth flex items-center justify-center px-4 py-8">
     <div class="w-full max-w-sm">
-        <div class="text-center mb-10">
+        <div class="text-center mb-6">
             <h1 class="text-2xl font-semibold text-slate-900 tracking-tight">欢迎回来</h1>
-            <p class="text-sm text-slate-400 mt-2">登录你的账号</p>
+            <p class="text-sm text-slate-400 mt-1.5">登录你的账号</p>
         </div>
 
         <div class="m-card">
-            <form id="login-form" class="space-y-6" novalidate>
+            <form id="login-form" class="space-y-5" novalidate>
                 <div>
                     <label for="email" class="m-label">邮箱</label>
                     <input type="email" id="email" name="email" required
@@ -29,7 +29,7 @@
                         class="m-input" autocomplete="current-password"
                         placeholder="输入密码">
                 </div>
-                <div class="pt-2">
+                <div>
                     <button type="submit" id="submit-btn" class="m-button-primary">登录</button>
                 </div>
             </form>
@@ -49,76 +49,11 @@
             </div>
         </div>
 
-        <p class="mt-8 text-center text-sm text-slate-400">
+        <p class="mt-6 text-center text-sm text-slate-400">
             没有账号？<a href="/register.html" class="m-link">创建账号</a>
         </p>
     </div>
 
-    <script>
-        // 已登录用户重定向到首页
-        if (localStorage.getItem('access_token')) {
-            window.location.replace('/');
-            throw new Error('redirect');
-        }
-
-        const form = document.getElementById('login-form');
-        const submitBtn = document.getElementById('submit-btn');
-
-        // Check URL params for OAuth error callback
-        const urlParams = new URLSearchParams(window.location.search);
-        const errorParam = urlParams.get('error');
-        if (errorParam) {
-            const errorMessages = {
-                'access_denied': '您已取消第三方登录授权',
-                'oauth_failed': '第三方登录失败，请稍后重试',
-                'invalid_state': '授权请求无效或已过期，请重新登录'
-            };
-            showAlert(errorMessages[errorParam] || '登录出错，请重试', 'error');
-        }
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value;
-
-            submitBtn.disabled = true;
-            submitBtn.textContent = '登录中...';
-
-            try {
-                const res = await fetch('/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-
-                const data = await res.json();
-
-                if (!res.ok) {
-                    let msg = '登录失败，请稍后重试';
-                    if (typeof data === 'string') {
-                        msg = data;
-                    } else if (typeof data.detail === 'string') {
-                        msg = data.detail;
-                    } else if (Array.isArray(data.detail)) {
-                        msg = data.detail.map(e => (typeof e === 'string') ? e : (e.msg || e.message || JSON.stringify(e))).join('; ');
-                    } else if (data.detail && typeof data.detail === 'object') {
-                        msg = data.detail.msg || data.detail.message || JSON.stringify(data.detail);
-                    }
-                    showAlert(msg, 'error');
-                    return;
-                }
-
-                localStorage.setItem('access_token', data.access_token);
-                localStorage.setItem('refresh_token', data.refresh_token);
-                window.location.replace('/');
-            } catch (err) {
-                showAlert('网络错误，请检查连接后重试', 'error');
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = '登录';
-            }
-        });
-    </script>
+    <script src="/scripts/login.js"></script>
 </body>
 </html>

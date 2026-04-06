@@ -1,0 +1,57 @@
+/**
+ * Cloudflare Workers configuration template.
+ * Copy this file to wrangler.jsonc and fill in your actual values.
+ * wrangler.jsonc is gitignored and will NOT be committed.
+ *
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "cloudflare-auth",
+	"main": "src/main.py",
+	"compatibility_date": "2026-04-04",
+	"compatibility_flags": [
+		"python_workers"
+	],
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"run_worker_first": [
+			"/auth/*",
+			"/users/*",
+			"/greet"
+		]
+	},
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "cloudflare-auth-db",
+			"database_id": "<your-d1-database-id>"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "TOKEN_BLACKLIST",
+			"id": "<your-kv-namespace-id>"
+		}
+	],
+	"secrets": {
+		"required": [
+			"JWT_SECRET",
+			"GOOGLE_CLIENT_SECRET",
+			"RESEND_API_KEY",
+			"TURNSTILE_SECRET_KEY"
+		]
+	},
+	"vars": {
+		"GOOGLE_CLIENT_ID": "<your-google-client-id>.apps.googleusercontent.com",
+		"OAUTH_REDIRECT_BASE_URL": "https://<your-domain>",
+		"TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
+		"RESEND_FROM_EMAIL": "noreply@<your-domain>",
+		"RESEND_TEMPLATE_ID": "<your-resend-template-id>"
+	}
+}

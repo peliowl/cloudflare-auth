@@ -11,6 +11,20 @@ body.m-body {
   color: #1e293b; /* slate-800 */
 }
 
+/* 认证页面（登录/注册）— 至少撑满视口，内容溢出时允许滚动 */
+body.m-body-auth {
+  min-height: 100vh;
+  overflow-y: auto;
+}
+
+body.m-body-auth .m-card {
+  padding: 2rem;
+}
+
+body.m-body-auth .m-divider {
+  margin: 1.25rem 0;
+}
+
 /* 卡片 */
 .m-card {
   background-color: #ffffff;

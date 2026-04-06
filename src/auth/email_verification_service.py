@@ -3,7 +3,13 @@ import random
 
 from fastapi import HTTPException
 
-from core.config import EMAIL_CODE_TTL, EMAIL_CODE_COOLDOWN, RESEND_API_URL, TURNSTILE_SITEVERIFY_URL
+from core.config import (
+    EMAIL_CODE_TTL,
+    EMAIL_CODE_COOLDOWN,
+    RESEND_API_URL,
+    TURNSTILE_SITEVERIFY_URL,
+    RESEND_TEMPLATE_VARIABLE_NAME,
+)
 
 
 class EmailVerificationService:
@@ -80,9 +86,13 @@ class EmailVerificationService:
             # 5. Store code in KV with full TTL
             await self.kv.put(f"email_code:{email}", code, expirationTtl=EMAIL_CODE_TTL)
 
-            # 6. Build and send email
-            html = self._build_email_html(code)
-            await self._send_email(email, "您的验证码", html)
+            # 6. Send email — prefer Resend template when configured
+            template_id = self._get_template_id()
+            if template_id:
+                await self._send_email_with_template(email, template_id, code)
+            else:
+                html = self._build_email_html(code)
+                await self._send_email(email, "您的验证码", html)
 
             # 7. Set cooldown AFTER email is sent successfully
             #    This prevents 429 on retry if the email send failed
@@ -129,6 +139,47 @@ class EmailVerificationService:
   </table>
 </body>
 </html>"""
+
+    def _get_template_id(self) -> str | None:
+        """Return the Resend template ID from env, or None if not configured."""
+        try:
+            tid = getattr(self.env, "RESEND_TEMPLATE_ID", None)
+            if tid is None:
+                return None
+            s = str(tid)
+            return None if s in ("", "undefined", "null") else s
+        except Exception:
+            return None
+
+    async def _send_email_with_template(self, to_email: str, template_id: str, code: str) -> None:
+        """Send verification code email via Resend template API."""
+        from js import fetch, Headers
+
+        headers = Headers.new()
+        headers.set("Authorization", f"Bearer {self.env.RESEND_API_KEY}")
+        headers.set("Content-Type", "application/json")
+
+        body = json.dumps({
+            "from": str(self.env.RESEND_FROM_EMAIL),
+            "to": [to_email],
+            "subject": "您的验证码",
+            "template": {
+                "id": template_id,
+                "variables": {
+                    RESEND_TEMPLATE_VARIABLE_NAME: code,
+                },
+            },
+        })
+
+        response = await fetch(
+            RESEND_API_URL,
+            method="POST",
+            headers=headers,
+            body=body,
+        )
+
+        if not response.ok:
+            raise HTTPException(status_code=502, detail="邮件发送失败，请稍后重试")
 
     async def _send_email(self, to_email: str, subject: str, html: str) -> None:
         from js import fetch, Headers

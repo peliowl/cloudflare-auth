@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>邮箱验证码</title>
+</head>
+<body style="margin:0;padding:0;background:#fafafa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="420" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;padding:48px 40px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+          <!-- 品牌标识 -->
+          <tr>
+            <td style="text-align:center;padding-bottom:32px;">
+              <div style="font-size:20px;font-weight:600;color:#0f172a;letter-spacing:-0.02em;">Cloudflare Auth</div>
+            </td>
+          </tr>
+          <!-- 标题 -->
+          <tr>
+            <td style="text-align:center;padding-bottom:8px;">
+              <div style="font-size:15px;color:#64748b;">您的邮箱验证码</div>
+            </td>
+          </tr>
+          <!-- 验证码 -->
+          <tr>
+            <td style="text-align:center;padding:24px 0 32px;">
+              <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#0f172a;background:#f8fafc;border-radius:12px;padding:20px 0;border:1px solid #e2e8f0;">{{verification_code}}</div>
+            </td>
+          </tr>
+          <!-- 有效期提示 -->
+          <tr>
+            <td style="text-align:center;padding-bottom:8px;">
+              <div style="font-size:13px;color:#94a3b8;">验证码有效期为 5 分钟</div>
+            </td>
+          </tr>
+          <!-- 安全提醒 -->
+          <tr>
+            <td style="text-align:center;padding-top:24px;border-top:1px solid #f1f5f9;">
+              <div style="font-size:12px;color:#cbd5e1;">如果您没有请求此验证码，请忽略此邮件。</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -11,5 +11,10 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret-here"
 # Resend API key — from resend.com Dashboard
 RESEND_API_KEY="re_your-resend-api-key-here"
 
+# Resend template ID — published template ID from Resend Dashboard > Templates
+# When set, verification code emails use the Resend template instead of hardcoded HTML.
+# Leave empty or remove to fall back to the built-in HTML template.
+RESEND_TEMPLATE_ID="your-resend-template-id-here"
+
 # Cloudflare Turnstile secret key — from Cloudflare Dashboard > Turnstile
 TURNSTILE_SECRET_KEY="0x_your-turnstile-secret-key-here"

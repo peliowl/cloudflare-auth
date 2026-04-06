@@ -1,15 +1,47 @@
 from urllib.parse import urlencode
+import json
+import secrets
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 import asgi
-from core.config import OAUTH_PROVIDERS
+from core.config import OAUTH_PROVIDERS, OAUTH_EXCHANGE_CODE_TTL
 from auth.oauth_service import OAuthService
 from users.repository import UserRepository
 from users.login_history_repository import LoginHistoryRepository
 
 oauth_router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
+
+
+@oauth_router.post("/exchange")
+async def oauth_exchange(request: Request, env=asgi.env):
+    """Exchange a one-time OAuth authorization code for JWT tokens.
+
+    The OAuth callback stores tokens in KV under a short-lived code,
+    and redirects the browser to the callback page with only the code.
+    This endpoint lets the frontend exchange that code for the actual tokens,
+    avoiding exposure of JWTs in URL query parameters.
+    """
+    body = await request.json()
+    code = body.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="缺少授权码")
+
+    kv = env.TOKEN_BLACKLIST
+    raw = await kv.get(f"oauth_exchange:{code}")
+    if raw is None or not raw:
+        raise HTTPException(status_code=400, detail="授权码无效或已过期")
+
+    try:
+        tokens = json.loads(str(raw))
+    except Exception:
+        raise HTTPException(status_code=400, detail="授权码无效或已过期")
+
+    # Delete the code immediately — one-time use
+    await kv.delete(f"oauth_exchange:{code}")
+
+    return tokens
 
 
 def _build_oauth_service(env) -> OAuthService:
@@ -99,8 +131,18 @@ async def oauth_callback(provider: str, request: Request, env=asgi.env):
     )
 
     # Redirect to OAuth callback page with tokens
-    params = urlencode({
-        "access_token": tokens["access_token"],
-        "refresh_token": tokens["refresh_token"],
-    })
+    # Security: store tokens in KV under a short-lived one-time code,
+    # pass only the opaque code in the URL to avoid exposing JWTs in
+    # browser history, server logs, and Referer headers.
+    exchange_code = secrets.token_urlsafe(32)
+    kv = env.TOKEN_BLACKLIST
+    await kv.put(
+        f"oauth_exchange:{exchange_code}",
+        json.dumps({
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+        }),
+        expiration_ttl=OAUTH_EXCHANGE_CODE_TTL,
+    )
+    params = urlencode({"code": exchange_code})
     return RedirectResponse(url=f"/oauth-callback.html?{params}", status_code=302)

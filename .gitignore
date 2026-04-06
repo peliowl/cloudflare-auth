@@ -62,6 +62,10 @@ jspm_packages/
 !.env.example
 .wrangler/
 
+# Wrangler config with real credentials (for local use only)
+wrangler.jsonc
+!wrangler.jsonc.example
+
 # Backup files with sensitive data (for local use only)
 *.bak
 

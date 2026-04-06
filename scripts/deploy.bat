@@ -6,44 +6,32 @@ echo   Cloudflare Workers Deploy Script
 echo ============================================
 echo.
 
-:: Step 1: Check if backup config exists
-if not exist "wrangler.jsonc.bak" (
-    echo [ERROR] wrangler.jsonc.bak not found.
-    echo         Please create a backup with real config values first:
-    echo         copy wrangler.jsonc wrangler.jsonc.bak
+:: Step 1: Check if wrangler.jsonc exists with real config
+if not exist "wrangler.jsonc" (
+    echo [ERROR] wrangler.jsonc not found.
+    echo         Please create it from the template:
+    echo         copy wrangler.jsonc.example wrangler.jsonc
     echo         Then fill in the real database_id, KV id, GOOGLE_CLIENT_ID, etc.
     exit /b 1
 )
 
-:: Step 2: Restore production config
-echo [1/4] Restoring production config from wrangler.jsonc.bak ...
-copy /Y wrangler.jsonc.bak wrangler.jsonc >nul
-if errorlevel 1 (
-    echo [ERROR] Failed to restore production config.
+:: Step 2: Verify it contains real values (quick sanity check)
+findstr /C:"<your-" wrangler.jsonc >nul 2>&1
+if not errorlevel 1 (
+    echo [ERROR] wrangler.jsonc still contains placeholder values.
+    echo         Please replace all ^<your-...^> placeholders with real values.
     exit /b 1
 )
-echo       Done.
-echo.
 
 :: Step 3: Deploy to Cloudflare
-echo [2/4] Deploying to Cloudflare Workers ...
+echo [1/2] Deploying to Cloudflare Workers ...
 echo.
 call npx wrangler deploy
 set DEPLOY_EXIT_CODE=!errorlevel!
 echo.
 
-:: Step 4: Restore desensitized config regardless of deploy result
-echo [3/4] Restoring desensitized config from git ...
-git checkout wrangler.jsonc >nul 2>&1
-if errorlevel 1 (
-    echo [WARN] git checkout failed. You may need to manually restore wrangler.jsonc.
-) else (
-    echo       Done.
-)
-echo.
-
-:: Step 5: Report result
-echo [4/4] Result:
+:: Step 4: Report result
+echo [2/2] Result:
 if !DEPLOY_EXIT_CODE! equ 0 (
     echo       Deploy SUCCEEDED.
 ) else (

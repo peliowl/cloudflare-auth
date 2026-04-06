@@ -427,6 +427,29 @@
     - **Validates: Requirements 15.2, 15.3, 15.4, 15.5, 15.6, 15.13**
 
 - [x] 19. 优化邮箱验证码功能
+
+- [x] 20. 优化登录和注册页面全屏无竖向滚动条
+  - [x] 20.1 在 `public/styles/common.css` 中新增 `.m-body-auth` 样式类
+    - 新增 `.m-body-auth` 样式类：`height: 100vh`、`min-height: 0`（覆盖 `.m-body` 的 `min-height`）、`overflow: hidden`
+    - 新增 `.m-body-auth .m-card` 样式：缩减内边距为 `2rem`（原 `2.5rem`）
+    - 新增 `.m-body-auth .m-divider` 样式：缩减上下间距为 `1.25rem`（原 `2rem`）
+    - _Requirements: 16.3_
+
+  - [x] 20.2 更新 `public/login.html` 使用紧凑布局
+    - 在 `<body>` 标签添加 `m-body-auth` 类
+    - 标题区域下间距从 `mb-10` 改为 `mb-6`，副标题间距从 `mt-2` 改为 `mt-1.5`
+    - 表单间距从 `space-y-6` 改为 `space-y-5`
+    - 移除登录按钮外层 `<div>` 的 `pt-2` 类
+    - 底部链接上间距从 `mt-8` 改为 `mt-6`
+    - _Requirements: 16.1_
+
+  - [x] 20.3 更新 `public/register.html` 使用紧凑布局
+    - 在 `<body>` 标签添加 `m-body-auth` 类
+    - 标题区域下间距从 `mb-10` 改为 `mb-5`，副标题间距从 `mt-2` 改为 `mt-1.5`
+    - 表单间距从 `space-y-6` 改为 `space-y-4`
+    - 移除注册按钮外层 `<div>` 的 `pt-2` 类
+    - 底部链接上间距从 `mt-8` 改为 `mt-5`
+    - _Requirements: 16.2_
   - [x] 19.1 在发送验证码前校验邮箱是否已注册
     - 修改 `src/auth/email_verification_service.py` 的 `send_verification_code` 方法，新增 `db` 参数（D1 binding）
     - 在 Turnstile 验证通过后、检查冷却标记前，通过 `UserRepository.get_by_email` 查询邮箱是否已注册
@@ -440,6 +463,36 @@
     - 在 `send_verification_code` 方法中增加顶层异常捕获，对非 HTTPException 的异常返回 HTTPException(500, "服务器内部错误")
     - 更新前端 `public/register.html`，对 409 状态码（邮箱已注册）显示对应的错误提示
     - _Requirements: 15.14, 15.15, 15.16, 15.17, 15.18_
+
+- [x] 21. 邮箱验证码邮件模板化
+  - [x] 21.1 导出邮件模板到 template 目录
+    - 将 `_build_email_html()` 中的 HTML 模板导出到 `template/verification-code-email.html`
+    - 使用 `{{verification_code}}` 作为 Resend 模板变量占位符
+    - 模板保持与内置 HTML 一致的极简现代化风格
+    - _Requirements: 18.1_
+
+  - [x] 21.2 更新后端支持 Resend Template API
+    - 在 `src/core/config.py` 中新增 `RESEND_TEMPLATE_VARIABLE_NAME` 常量
+    - 在 `src/auth/email_verification_service.py` 中新增 `_get_template_id()` 方法，从 `env.RESEND_TEMPLATE_ID` 获取模板 ID
+    - 在 `src/auth/email_verification_service.py` 中新增 `_send_email_with_template()` 方法，通过 Resend Template API 发送邮件
+    - 修改 `send_verification_code()` 方法，优先使用模板发送，未配置时回退到内置 HTML
+    - _Requirements: 18.2, 18.3, 18.4_
+
+  - [x] 21.3 更新环境变量配置
+    - 在 `wrangler.jsonc` 的 `vars` 中新增 `RESEND_TEMPLATE_ID` 配置项
+    - 在 `.dev.vars.example` 中新增 `RESEND_TEMPLATE_ID` 示例
+    - _Requirements: 18.2_
+
+  - [x] 21.4 编写邮件模板方案文档
+    - 在 `docs/email-template-solution.md` 中整理邮件模板方案
+    - 包含方案背景、架构设计、模板配置指南、后端实现细节、文件变更清单和注意事项
+    - _Requirements: 18.5_
+
+  - [x] 21.5 更新 specs 文档
+    - 在 `requirements.md` 中新增需求 18（邮箱验证码邮件模板化）
+    - 更新 `design.md` 中的项目结构、EmailVerificationService 接口和 wrangler.jsonc 配置
+    - 在 `tasks.md` 中新增任务 21
+    - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5_
 
 ## 备注
 
@@ -457,3 +510,4 @@
 - 地理位置信息通过 Cloudflare Workers 的 `request.cf` 对象和 `CF-Connecting-IP` 请求头获取，本地开发时这些值可能不可用
 - Cloudflare Turnstile Site Key 和 Secret Key 需要在 Cloudflare Dashboard > Turnstile 中创建 Widget 后获取
 - Resend API Key 需要在 resend.com Dashboard 中创建后获取，发件邮箱域名需要在 Resend 中完成域名验证
+- 邮箱验证码邮件模板源文件位于 `template/verification-code-email.html`，需上传到 Resend Dashboard 并发布后，将模板 ID 配置到 `RESEND_TEMPLATE_ID` 环境变量中。未配置时系统自动回退到内置 HTML 模板

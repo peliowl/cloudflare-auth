@@ -60,3 +60,5 @@
 
 - [x] 修复bug：注册页面点击发送验证码，调用了两次
 https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/flow/ov1接口，并且第二次接口返回401 Unauthorized
+
+- [x] 修复bug：当浏览器视口高度不足时，注册页面没有出现滚动条，导致无法部分顶部、底部内容未完全显示出来，无法切换到登录页面

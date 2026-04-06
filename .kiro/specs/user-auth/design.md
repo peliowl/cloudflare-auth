@@ -12,7 +12,7 @@
 - **前端页面**：登录和注册页面作为静态 HTML 文件放在 `public/` 目录下，使用 TailwindCSS CDN 实现样式，采用极简现代化设计风格。所有页面的公共样式统一在 `public/styles/common.css` 中维护，各 HTML 页面通过 `<link rel="stylesheet" href="/styles/common.css">` 引用。通过 JavaScript 调用后端 API。
 - **第三方 OAuth 登录**：支持 Google OAuth 2.0 授权码流程。OAuth 回调由后端处理，完成令牌交换和用户信息获取后，将系统 JWT 传递给前端。
 - **OAuth 状态管理**：使用 KV 存储保存 OAuth state 参数，防止 CSRF 攻击，state 设置短 TTL 自动过期。
-- **邮箱验证码**：注册时通过 Resend REST API 发送 6 位数字验证码到用户邮箱。验证码存储在 KV 中（TTL=300s），有效期内不允许重复发送。由于 Pyodide 环境无法使用 Resend Python SDK，使用 Pyodide 内置的 `fetch` API 直接调用 Resend REST API（`POST https://api.resend.com/emails`）。
+- **邮箱验证码**：注册时通过 Resend REST API 发送 6 位数字验证码到用户邮箱。验证码存储在 KV 中（TTL=300s），有效期内不允许重复发送。由于 Pyodide 环境无法使用 Resend Python SDK，使用 Pyodide 内置的 `fetch` API 直接调用 Resend REST API（`POST https://api.resend.com/emails`）。支持通过 `RESEND_TEMPLATE_ID` 环境变量配置 Resend 平台模板，实现邮件内容的动态维护与热更新；未配置时自动回退到内置 HTML 模板。邮件模板源文件位于 `template/verification-code-email.html`，供开发者维护到 Resend 平台。
 - **人机验证**：使用 Cloudflare Turnstile 作为 CAPTCHA 替代方案，在发送验证码前验证用户为真人。前端嵌入 Turnstile 小部件，后端通过 Siteverify API 验证 token。
 
 ## 架构
@@ -127,7 +127,13 @@ sequenceDiagram
         W->>DB: 创建新用户 + OAuth 账号记录
     end
     W->>W: 生成 JWT tokens
-    W-->>B: 302 重定向到前端页面，携带 tokens
+    W->>KV: 存储 tokens 到 oauth_exchange:{code} (TTL=60s)
+    W-->>B: 302 重定向到前端页面，携带一次性授权码
+
+    B->>W: POST /auth/oauth/exchange {code}
+    W->>KV: 获取并删除 oauth_exchange:{code}
+    KV-->>W: {access_token, refresh_token}
+    W-->>B: 200 OK {access_token, refresh_token}
 ```
 
 ### 邮箱验证码注册流程
@@ -194,9 +200,16 @@ src/
 │   ├── password.py      # 密码哈希与验证
 │   └── config.py        # 配置常量（含 Google OAuth 配置、邮箱验证码配置）
 └── schema.sql           # D1 数据库建表 SQL
+template/
+└── verification-code-email.html  # 邮箱验证码邮件模板源文件（供开发者维护到 Resend 平台）
 public/
 ├── scripts/
-│   └── alert.js         # Alert 组件全局 JS（showAlert 函数）
+│   ├── alert.js         # Alert 组件全局 JS（showAlert 函数）
+│   ├── index.js         # 主页逻辑（认证检查、用户信息加载、退出登录）
+│   ├── login.js         # 登录页逻辑（表单提交、OAuth 错误处理、重定向）
+│   ├── oauth-callback.js # OAuth 回调逻辑（授权码交换 tokens）
+│   ├── profile.js       # 个人信息页逻辑（Tab 切换、数据加载、设置密码）
+│   └── register.js      # 注册页逻辑（Turnstile 初始化、验证码发送、表单提交）
 ├── styles/
 │   └── common.css       # 公共样式文件（Naive UI 风格，TailwindCSS @apply）
 ├── index.html           # 用户主页（登录后展示认证成功信息、退出登录）
@@ -419,7 +432,8 @@ class EmailVerificationService:
         3. 检查 KV 中是否已存在该邮箱的验证码（防止重复发送）
         4. 生成 6 位随机数字验证码
         5. 将验证码存入 KV（Key: email_code:{email}，TTL: 300s）
-        6. 调用 Resend REST API 发送验证码邮件
+        6. 优先使用 Resend Template API 发送邮件（当 RESEND_TEMPLATE_ID 已配置时），
+           否则回退到内置 HTML 模板
         7. 设置冷却标记（仅在邮件发送成功后）
         失败时抛出 HTTPException"""
         ...
@@ -439,7 +453,8 @@ class EmailVerificationService:
         ...
 
     def _build_email_html(self, code: str) -> str:
-        """构建验证码邮件 HTML 模板
+        """构建验证码邮件 HTML 模板（回退模式）
+        当 RESEND_TEMPLATE_ID 未配置时使用此方法生成内置 HTML。
         参考 X 平台邮件验证码模板风格，与当前 UI 风格一致：
         - 品牌标识（Cloudflare Auth）
         - 验证码数字（大号加粗居中显示，字间距加大）
@@ -448,8 +463,19 @@ class EmailVerificationService:
         - 极简现代化风格（slate 色调、大量留白、圆角卡片）"""
         ...
 
+    def _get_template_id(self) -> str | None:
+        """从 env.RESEND_TEMPLATE_ID 获取 Resend 模板 ID。
+        未配置、为空或为 JS undefined/null 时返回 None，触发回退到内置 HTML"""
+        ...
+
+    async def _send_email_with_template(self, to_email: str, template_id: str, code: str) -> None:
+        """通过 Resend Template API 发送验证码邮件
+        使用 Pyodide 内置的 fetch API 调用 POST https://api.resend.com/emails
+        Body: {from, to, subject, template: {id, variables: {verification_code: code}}}"""
+        ...
+
     async def _send_email(self, to_email: str, subject: str, html: str) -> None:
-        """通过 Resend REST API 发送邮件
+        """通过 Resend REST API 发送邮件（回退模式，直接传入 HTML）
         使用 Pyodide 内置的 fetch API 调用 POST https://api.resend.com/emails
         Headers: Authorization: Bearer {RESEND_API_KEY}, Content-Type: application/json
         Body: {from, to, subject, html}"""
@@ -522,6 +548,7 @@ class LoginHistoryRepository:
 | GET | `/auth/config` | 获取前端公开配置（Turnstile Site Key 等） | 无 |
 | GET | `/auth/oauth/{provider}` | 发起 OAuth 登录（重定向到提供商） | 无 |
 | GET | `/auth/oauth/callback/{provider}` | OAuth 回调处理（重定向到前端页面） | 无 |
+| POST | `/auth/oauth/exchange` | 用一次性授权码交换 JWT tokens | 无 |
 | GET | `/users/me` | 获取当前用户信息 | 需要 |
 | GET | `/users/me/detail` | 获取用户详细信息（含 has_password 和 OAuth 账号列表） | 需要 |
 | GET | `/users/me/geo` | 获取当前用户 IP 和地理位置信息 | 需要 |
@@ -692,6 +719,9 @@ class LoginHistoryResponse(BaseModel):
 - **OAuth State Key**: `oauth_state:{state_value}`
 - **OAuth State Value**: `{"provider": "google", "created_at": timestamp}`
 - **OAuth State TTL**: 300 秒（5 分钟），防止过期 state 被重放
+- **OAuth Exchange Code Key**: `oauth_exchange:{code}`
+- **OAuth Exchange Code Value**: `{"access_token": "...", "refresh_token": "..."}`
+- **OAuth Exchange Code TTL**: 60 秒（1 分钟），一次性使用后立即删除
 - **邮箱验证码 Key**: `email_code:{email}`
 - **邮箱验证码 Value**: `"123456"`（6 位数字字符串）
 - **邮箱验证码 TTL**: 300 秒（5 分钟），过期自动清理，有效期内不允许重复发送
@@ -744,7 +774,8 @@ class LoginHistoryResponse(BaseModel):
         "GOOGLE_CLIENT_ID": "<your-google-client-id>",
         "OAUTH_REDIRECT_BASE_URL": "https://your-domain.workers.dev",
         "TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
-        "RESEND_FROM_EMAIL": "Cloudflare Auth <noreply@your-domain.com>"
+        "RESEND_FROM_EMAIL": "Cloudflare Auth <noreply@your-domain.com>",
+        "RESEND_TEMPLATE_ID": "<your-resend-template-id>"
     }
 }
 ```
@@ -790,6 +821,8 @@ class LoginHistoryResponse(BaseModel):
   - 动效：所有交互元素使用 `transition-all duration-300` 平滑过渡
 - **布局**：居中卡片式表单，大量留白，响应式适配移动端
 - **第三方登录按钮**：使用 `.m-button-outline` 样式展示 Google 登录按钮，图标 + 文字，简洁一致
+- **MVVM 架构**：所有页面遵循 MVVM 思想，HTML 文件仅包含 DOM 结构（View），CSS 样式统一在 `common.css` 中维护（Style），JavaScript 逻辑提取到独立的 `.js` 文件中（ViewModel）。各页面通过 `<script src="/scripts/{page}.js">` 引用对应的逻辑文件，实现样式、结构与逻辑的完全分离，提高页面加载速度、渲染效率和可维护性
+- **敏感信息传输安全**：OAuth 回调不再通过 URL 查询参数传递 JWT tokens（避免 tokens 暴露在浏览器历史记录、服务器日志和 Referer 头中）。改为使用一次性短期授权码（存储在 KV 中，TTL=60s），前端通过 `POST /auth/oauth/exchange` API 安全交换 tokens
 - **消息提示规范**：所有页面的消息提示（包括错误提示、成功提示、警告提示等）统一通过页面内嵌的 Alert 组件展示（参考 Chakra UI Alert 设计规范），不使用浏览器 `alert()` 弹窗。Alert 组件通过 `common.css` 中的 `.m-alert` 系列样式类实现，支持四种状态：
   - `.m-alert.m-alert-error`：错误状态（红色系，`#fef2f2` 背景 + `#dc2626` 文字 + 红色左边框）
   - `.m-alert.m-alert-success`：成功状态（绿色系，`#f0fdf4` 背景 + `#16a34a` 文字 + 绿色左边框）
@@ -801,9 +834,17 @@ class LoginHistoryResponse(BaseModel):
   - Alert 组件使用 `transition-all duration-300` 平滑出现/消失动效
   - 通过全局 JavaScript 函数 `showAlert(message, type, duration)` 统一调用，`type` 为 `error|success|warning|info`，`duration` 为自动消失时长（毫秒），默认 2000（2 秒），传 0 则不自动消失。该函数定义在 `public/scripts/alert.js` 中，各 HTML 页面通过 `<script src="/scripts/alert.js"></script>` 引用
   - Alert 组件圆角使用 `rounded-xl` 与整体风格一致
+- **认证页面全屏无滚动条**：登录页面和注册页面在全屏显示时不出现竖向滚动条。通过 `common.css` 中新增的 `.m-body-auth` 样式类实现：
+  - `body` 标签同时使用 `m-body` 和 `m-body-auth` 两个类
+  - `.m-body-auth` 设置 `height: 100vh`、`min-height: 0`（覆盖 `.m-body` 的 `min-height: 100vh`）、`overflow: hidden`
+  - `.m-body-auth .m-card` 缩减内边距为 `2rem`（原 `2.5rem`）
+  - `.m-body-auth .m-divider` 缩减上下间距为 `1.25rem`（原 `2rem`）
+  - 登录页面表单间距使用 `space-y-5`（原 `space-y-6`），标题区域下间距 `mb-6`（原 `mb-10`），底部链接上间距 `mt-6`（原 `mt-8`）
+  - 注册页面表单间距使用 `space-y-4`（原 `space-y-6`），标题区域下间距 `mb-5`（原 `mb-10`），底部链接上间距 `mt-5`（原 `mt-8`）
+  - 移除登录和注册按钮外层 `<div>` 的 `pt-2` 类，减少额外的顶部间距
 - **已登录用户重定向**：登录页面和注册页面在页面加载时（`<script>` 顶部同步执行）检查 `localStorage` 中是否存在 `access_token`，若存在则立即通过 `window.location.replace('/')` 重定向到首页，阻止页面内容渲染和表单交互。此检查在 DOM 渲染前执行，确保已登录用户不会看到登录/注册表单的闪烁
 - **交互**：表单提交通过 `fetch` 调用 API，API 响应的错误信息和操作成功信息均通过页面内嵌的 Alert 组件展示
-- **OAuth 回调页面** (`oauth-callback.html`)：从 URL 参数中提取 tokens，存入 localStorage，然后跳转到主页。错误信息通过 Alert 组件展示
+- **OAuth 回调页面** (`oauth-callback.html`)：从 URL 参数中提取一次性授权码，通过 `POST /auth/oauth/exchange` API 安全交换 JWT tokens，存入 localStorage，然后跳转到主页。错误信息通过 Alert 组件展示
 - **注册页面邮箱验证码**：
   - 注册页面在邮箱输入框下方新增验证码输入区域，包含验证码输入框（`.m-input`）和"发送验证码"按钮
   - "发送验证码"按钮使用 `.m-button-outline` 样式，与邮箱输入框同行排列（flex 布局），按钮宽度固定
@@ -1074,6 +1115,7 @@ class LoginHistoryResponse(BaseModel):
 | OAuth 授权码交换失败 | 502 | "第三方登录服务暂时不可用" |
 | OAuth 用户信息获取失败 | 502 | "无法获取第三方账号信息" |
 | OAuth 用户拒绝授权 | 302 | 重定向到 `/login.html?error=access_denied` |
+| OAuth 授权码交换失败（一次性授权码无效或过期） | 400 | "授权码无效或已过期" |
 | 获取地理位置信息失败（cf 对象不可用） | 200 | 返回可用字段，不可用字段为 null |
 | 用户已设置密码，不允许重复设置 | 409 | "密码已设置，不可重复操作" |
 | 设置密码时密码强度不足 | 422 | Pydantic 自动生成的验证错误 |
@@ -1092,6 +1134,8 @@ class LoginHistoryResponse(BaseModel):
 - 登录失败时不区分"邮箱不存在"和"密码错误"，统一返回"凭据无效"
 - 500 错误不暴露内部实现细节
 - JWT 密钥通过 Cloudflare Secrets 管理，不硬编码在代码中
+- OAuth 回调使用一次性短期授权码（存储在 KV，TTL=60s）交换 JWT tokens，避免 tokens 暴露在 URL 查询参数、浏览器历史记录、服务器日志和 HTTP Referer 头中
+- 前端页面遵循 MVVM 架构，JavaScript 逻辑与 HTML 结构分离，减少内联脚本的 XSS 攻击面
 
 ## 测试策略
 

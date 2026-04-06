@@ -240,3 +240,37 @@
 16. WHEN Resend_API 返回非成功状态码（如 API Key 无效、发件邮箱未验证、收件邮箱不可达等）, THE Auth_System SHALL 返回"邮件发送失败，请稍后重试"的错误信息，并确保不会在 KV_Store 中留下无效的冷却标记
 17. WHEN Cloudflare Turnstile Siteverify API 请求本身失败（网络错误、超时等）, THE Auth_System SHALL 返回"人机验证服务暂时不可用，请稍后重试"的错误信息
 18. WHEN 发送验证码过程中发生未预期的异常, THE Auth_System SHALL 捕获异常并返回通用的服务器错误信息，避免泄露内部实现细节
+
+### 需求 16：登录和注册页面全屏无竖向滚动条
+
+**用户故事：** 作为一个用户，我希望在全屏浏览器窗口下访问登录和注册页面时，页面内容完整显示在视口内，不出现竖向滚动条，以获得更好的视觉体验。
+
+#### 验收标准
+
+1. WHEN 用户在全屏浏览器窗口下访问 `/login.html` 页面, THE Auth_UI SHALL 确保页面所有内容（标题、表单、第三方登录按钮、底部链接）完整显示在视口内，不出现竖向滚动条
+2. WHEN 用户在全屏浏览器窗口下访问 `/register.html` 页面, THE Auth_UI SHALL 确保页面所有内容（标题、表单、验证码区域、第三方登录按钮、底部链接）完整显示在视口内，不出现竖向滚动条
+3. THE Auth_UI SHALL 通过在 `common.css` 中新增 `.m-body-auth` 样式类实现认证页面的视口高度固定（`height: 100vh`）和溢出隐藏（`overflow: hidden`），同时适当缩减卡片内边距、表单间距和分隔线间距，确保内容紧凑地适配视口高度
+
+### 需求 18：邮箱验证码邮件模板化
+
+**用户故事：** 作为一个开发者，我希望邮箱验证码的邮件内容通过 Resend 平台的模板系统管理，以便在不修改代码和重新部署的情况下动态调整邮件样式和文案。
+
+#### 验收标准
+
+1. THE Auth_System SHALL 将当前使用的邮箱验证码 HTML 邮件模板导出到 `template/verification-code-email.html` 文件中，供开发者维护并上传到 Resend 平台
+2. THE Auth_System SHALL 支持通过环境变量 `RESEND_TEMPLATE_ID` 配置 Resend 平台上已发布的邮件模板 ID，配置后发送验证码邮件时使用 Resend Template API（`template.id` + `template.variables`）替代硬编码的 HTML 内容
+3. WHEN `RESEND_TEMPLATE_ID` 环境变量未配置或为空时, THE Auth_System SHALL 自动回退到内置的 `_build_email_html()` 方法生成 HTML 邮件，确保向后兼容
+4. THE Auth_System SHALL 在 Resend 模板中使用 `verification_code` 作为模板变量名，对应 6 位数字验证码
+5. THE Auth_System SHALL 将邮件模板方案以 Markdown 文档形式整理输出到 `docs/email-template-solution.md`，包含方案背景、架构设计、模板配置指南和文件变更清单
+
+### 需求 17：MVVM 架构重构与敏感信息传输安全
+
+**用户故事：** 作为一个开发者，我希望前端页面遵循 MVVM 架构分离样式、DOM 结构和逻辑，以提高页面加载速度、渲染效率和可维护性。同时，我希望敏感信息（如 JWT tokens）的传输采用更安全的方案，避免信息泄露。
+
+#### 验收标准
+
+1. THE Auth_UI SHALL 将所有页面的 JavaScript 逻辑从 HTML 内联 `<script>` 标签中提取到独立的 `.js` 文件中（`public/scripts/` 目录），HTML 文件仅保留 DOM 结构，通过 `<script src>` 引用对应的逻辑文件
+2. THE Auth_UI SHALL 为每个页面创建独立的 ViewModel 文件：`login.js`（登录页）、`register.js`（注册页）、`index.js`（主页）、`profile.js`（个人信息页）、`oauth-callback.js`（OAuth 回调页）
+3. THE Auth_System SHALL 在 OAuth 回调流程中不再通过 URL 查询参数传递 JWT tokens，改为使用一次性短期授权码机制：后端生成随机授权码并将 tokens 存储在 KV 中（TTL=60s），仅将授权码通过 URL 传递给前端
+4. THE Auth_System SHALL 提供 `POST /auth/oauth/exchange` API 端点，允许前端使用一次性授权码安全交换 JWT tokens，授权码使用后立即从 KV 中删除
+5. THE Auth_UI 的 OAuth 回调页面 SHALL 从 URL 参数中提取授权码，通过 `POST /auth/oauth/exchange` API 交换 tokens，而非直接从 URL 参数中读取 tokens
