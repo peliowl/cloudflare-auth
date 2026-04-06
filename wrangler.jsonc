@@ -27,13 +27,13 @@
 		{
 			"binding": "DB",
 			"database_name": "cloudflare-auth-db",
-			"database_id": "<your-d1-database-id>"
+			"database_id": "fb8e2c72-ba2a-429e-a01e-1a31a23eeeb8"
 		}
 	],
 	"kv_namespaces": [
 		{
 			"binding": "TOKEN_BLACKLIST",
-			"id": "<your-kv-namespace-id>"
+			"id": "ef893ef6c1d24510bb0ddf83f0a1a38f"
 		}
 	],
 	// Declare required secrets — deploy will fail if these are not set via `wrangler secret put`.
@@ -49,10 +49,11 @@
 		]
 	},
 	"vars": {
-		"GOOGLE_CLIENT_ID": "<your-google-client-id>.apps.googleusercontent.com",
-		"OAUTH_REDIRECT_BASE_URL": "https://<your-domain>",
-		"TURNSTILE_SITE_KEY": "<your-turnstile-site-key>",
-		"RESEND_FROM_EMAIL": "noreply@<your-domain>"
+		"GOOGLE_CLIENT_ID": "652092673563-bujaiq3jhv0m9trq2hpovhfr1982vpa0.apps.googleusercontent.com",
+		"OAUTH_REDIRECT_BASE_URL": "https://auth.peliowl.asia",
+		"TURNSTILE_SITE_KEY": "0x4AAAAAAC1CMyrl427_npN6",
+		"RESEND_FROM_EMAIL": "noreply@mail.peliowl.asia",
+		"RESEND_TEMPLATE_ID": "70dbcd27-c87e-4b39-a720-1554d3453521"
 	},
 	/**
 	 * Smart Placement
